@@ -1,6 +1,5 @@
-package fi.poltsi.vempain.file.cli;
+package fi.poltsi.vempain.cli;
 
-import fi.poltsi.vempain.cli.CommandRouter;
 import fi.poltsi.vempain.cli.core.PasswordReader;
 import org.jline.reader.Completer;
 import org.jline.reader.LineReader;
@@ -55,4 +54,5 @@ public class VempainFileCliApplication {
         return "1".equals(env) || "true".equalsIgnoreCase(env) || "yes".equalsIgnoreCase(env);
     }
 }
+
 

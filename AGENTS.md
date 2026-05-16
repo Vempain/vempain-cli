@@ -15,13 +15,13 @@ Planned scope:
 
 ## Repository layout
 
-| Path                                        | Purpose                                                               |
-|---------------------------------------------|-----------------------------------------------------------------------|
-| `src/main/java/fi/poltsi/vempain/file/cli/` | Current CLI runtime code (commands, HTTP client, session persistence) |
-| `src/test/java/fi/poltsi/vempain/file/cli/` | Unit/integration tests (`UTC`) for command behavior and completion    |
-| `packaging/rpm/`                            | RPM spec and packaging inputs                                         |
-| `vf-cli`                                    | Shell wrapper installed by RPM (`/usr/bin/vf-cli`)                    |
-| `TODO-Vempain-Admin.md`                     | Detailed plan for Admin backend command support                       |
+| Path                                   | Purpose                                                               |
+|----------------------------------------|-----------------------------------------------------------------------|
+| `src/main/java/fi/poltsi/vempain/cli/` | Current CLI runtime code (commands, HTTP client, session persistence) |
+| `src/test/java/fi/poltsi/vempain/cli/` | Unit/integration tests (`UTC`) for command behavior and completion    |
+| `packaging/rpm/`                       | RPM spec and packaging inputs                                         |
+| `vf-cli`                               | Shell wrapper installed by RPM (`/usr/bin/vf-cli`)                    |
+| `TODO-Vempain-Admin.md`                | Detailed plan for Admin backend command support                       |
 
 ## Main components
 

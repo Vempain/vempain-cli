@@ -26,8 +26,8 @@ Current implementation supports both Vempain File and Vempain Admin backend APIs
 
 ## Repository structure
 
-- `src/main/java/fi/poltsi/vempain/file/cli/` - CLI runtime code
-- `src/test/java/fi/poltsi/vempain/file/cli/` - unit/integration tests
+- `src/main/java/fi/poltsi/vempain/cli/` - CLI runtime code
+- `src/test/java/fi/poltsi/vempain/cli/` - unit/integration tests
 - `packaging/rpm/` - RPM spec and packaging sources
 - `vf-cli` - wrapper script for packaged installations
 - `TODO-Vempain-Admin.md` - follow-up implementation plan for Admin backend support
