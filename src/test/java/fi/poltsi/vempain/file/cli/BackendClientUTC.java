@@ -37,9 +37,31 @@ class BackendClientUTC {
         register("/api/login", 200, "application/json", "{\"token\":\"token-obj\"}");
 
         var client = new BackendClient();
-        var response = client.login(baseUrl, "user", "pass");
+        var response = client.login(baseUrl, "user", "pass".toCharArray());
 
         assertEquals("token-obj", response.getString("token"));
+    }
+
+    @Test
+    void getJsonFlexible_wrapsArrayPayloadAsItems() throws Exception {
+        register("/api/content-management/galleries", 200, "application/json", "[{\"id\":1}]");
+
+        var client = new BackendClient();
+        var response = client.getJsonFlexible(new SessionStore.Session(baseUrl, "abc"), "/content-management/galleries?details=FULL");
+
+        assertTrue(response.has("items"));
+        assertEquals(1, response.getJSONArray("items").length());
+    }
+
+    @Test
+    void patchJson_returnsResponsePayload() throws Exception {
+        register("/api/content-management/galleries/publish", 200, "application/json", "[{\"result\":\"OK\"}]");
+
+        var client = new BackendClient();
+        var response = client.patchJson(new SessionStore.Session(baseUrl, "abc"), "/content-management/galleries/publish", new JSONObject().put("id", 1));
+
+        assertTrue(response.has("items"));
+        assertEquals("OK", response.getJSONArray("items").getJSONObject(0).getString("result"));
     }
 
     @Test
@@ -77,7 +99,7 @@ class BackendClientUTC {
         register("/api/login", 200, "application/json", "[]");
 
         var client = new BackendClient();
-        var exception = assertThrows(IOException.class, () -> client.login(baseUrl, "user", "pass"));
+        var exception = assertThrows(IOException.class, () -> client.login(baseUrl, "user", "pass".toCharArray()));
         assertTrue(exception.getMessage()
                 .contains("empty"));
     }

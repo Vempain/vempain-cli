@@ -73,5 +73,27 @@ class SessionStoreUTC {
         sessionStore.clear();
         assertNull(sessionStore.load());
     }
+
+    @Test
+    void save_loggingIntoAnotherBackendReplacesOldSession() throws Exception {
+        sessionStore.save(SessionStore.BACKEND_FILE, "localhost:8080", "file-token");
+        assertEquals("file-token", sessionStore.load(SessionStore.BACKEND_FILE).token());
+        assertNull(sessionStore.load(SessionStore.BACKEND_ADMIN));
+
+        sessionStore.save(SessionStore.BACKEND_ADMIN, "localhost:9090", "admin-token");
+
+        assertNull(sessionStore.load(SessionStore.BACKEND_FILE));
+        assertEquals("admin-token", sessionStore.load(SessionStore.BACKEND_ADMIN).token());
+        assertEquals(SessionStore.BACKEND_ADMIN, sessionStore.getActiveBackend());
+    }
+
+    @Test
+    void setActiveBackend_withoutSessionForBackend_throws() throws Exception {
+        sessionStore.save(SessionStore.BACKEND_ADMIN, "localhost:9090", "admin-token");
+
+        var ex = assertThrows(java.io.IOException.class, () -> sessionStore.setActiveBackend(SessionStore.BACKEND_FILE));
+
+        assertTrue(ex.getMessage().contains("No stored session"));
+    }
 }
 

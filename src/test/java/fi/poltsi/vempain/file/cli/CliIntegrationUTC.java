@@ -3,6 +3,7 @@ package fi.poltsi.vempain.file.cli;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
+import fi.poltsi.vempain.cli.core.PasswordReader;
 import org.jline.reader.*;
 import org.jline.reader.impl.LineReaderImpl;
 import org.jline.terminal.TerminalBuilder;
@@ -66,9 +67,10 @@ class CliIntegrationUTC {
 
             var outBytes = new ByteArrayOutputStream();
             var errBytes = new ByteArrayOutputStream();
-            var app = new VempainFileCliApplication(new SessionStore(), new BackendClient(), new PrintStream(outBytes), new PrintStream(errBytes));
+            PasswordReader mockReader = prompt -> "secret".toCharArray();
+            var app = new VempainFileCliApplication(new SessionStore(), new BackendClient(), new PrintStream(outBytes), new PrintStream(errBytes), mockReader);
 
-            app.run(new String[]{"login", "--url", server.baseUrl(), "--username", "admin", "--password", "secret"});
+            app.run(new String[]{"login", "--url", server.baseUrl(), "--username", "admin"});
             app.run(new String[]{"files-list", "--type", "music", "--size", "10"});
 
             var output = outBytes.toString(StandardCharsets.UTF_8);
@@ -258,7 +260,7 @@ class CliIntegrationUTC {
             assertTrue(output.contains("music_library"));
             assertTrue(output.contains("gps_timeseries_demo"));
             assertTrue(output.contains("newFilesCount"));
-            assertTrue(output.contains("Session removed."));
+            assertTrue(output.contains("Session removed for backend"));
             assertNull(sessionStore.load());
             assertTrue(errBytes.toString(StandardCharsets.UTF_8)
                     .isBlank());
@@ -283,6 +285,40 @@ class CliIntegrationUTC {
         assertTrue(err.contains("Not logged in"));
         assertTrue(err.contains("Invalid --type"));
         assertTrue(err.contains("Provide --original-directory and/or --export-directory"));
+    }
+
+    @Test
+    void adminWorkflow_loginListPublishAndSessionSwitch_workEndToEnd() throws Exception {
+        try (var adminServer = new MockApiServer()) {
+            adminServer.registerJson("/api/login", "[{\"token\":\"admin-jwt\"}]");
+            adminServer.registerJson("/api/content-management/galleries",
+                    """
+                            [
+                              {"id": 7, "shortName": "Summer", "description": "Summer photos"}
+                            ]
+                            """);
+            adminServer.registerJson("/api/content-management/galleries/publish", "[{\"result\":\"OK\",\"message\":\"done\"}]");
+            adminServer.registerJson("/api/content-management/galleries/publish-selected", "[{\"result\":\"OK\",\"message\":\"done\"}]");
+
+            var outBytes = new ByteArrayOutputStream();
+            var errBytes = new ByteArrayOutputStream();
+            PasswordReader mockReader = prompt -> "secret".toCharArray();
+            var app = new VempainFileCliApplication(new SessionStore(), new BackendClient(), new PrintStream(outBytes), new PrintStream(errBytes), mockReader);
+
+            app.run(new String[]{"login", "--backend", "admin", "--url", adminServer.baseUrl(), "--username", "admin"});
+            app.run(new String[]{"session", "show"});
+            app.run(new String[]{"admin", "list-groups"});
+            app.run(new String[]{"admin", "publish-group", "--id", "7", "--message", "publish now"});
+            app.run(new String[]{"admin", "publish-groups", "--ids", "7,8"});
+
+            var output = outBytes.toString(StandardCharsets.UTF_8);
+            assertTrue(output.contains("backend 'admin'"));
+            assertTrue(output.contains("Active backend: admin"));
+            assertTrue(output.contains("short_name"));
+            assertTrue(output.contains("Summer"));
+            assertTrue(output.contains("\"result\": \"OK\""));
+            assertTrue(errBytes.toString(StandardCharsets.UTF_8).isBlank());
+        }
     }
 
     @Test
@@ -326,6 +362,62 @@ class CliIntegrationUTC {
             var output = outBytes.toString(StandardCharsets.UTF_8);
             assertTrue(output.contains("Interactive shell started"));
             assertTrue(output.contains("No files found."));
+        }
+    }
+
+    @Test
+    void runShell_promptShowsUnauthicatedWhenNoSession() {
+        var app = new VempainFileCliApplication(new SessionStore(), new BackendClient(), System.out, System.err);
+        var prompts = new ArrayList<String>();
+        var reader = scriptedReader(List.of("exit"), prompts);
+
+        app.runShell(reader);
+
+        assertEquals(List.of("vempain-unauthicated> "), prompts);
+    }
+
+    @Test
+    void runShell_promptTracksLoggedInBackendAndSwitch() throws Exception {
+        try (var fileServer = new MockApiServer(); var adminServer = new MockApiServer()) {
+            fileServer.registerJson("/api/login", "[{\"token\":\"file-jwt\"}]");
+            adminServer.registerJson("/api/login", "[{\"token\":\"admin-jwt\"}]");
+
+            var sessionStore = new SessionStore();
+            PasswordReader mockReader = prompt -> "secret".toCharArray();
+            var app = new VempainFileCliApplication(sessionStore, new BackendClient(), System.out, System.err, mockReader);
+            var prompts = new ArrayList<String>();
+            var reader = scriptedReader(List.of(
+                    "login --backend file --url " + fileServer.baseUrl() + " --username admin",
+                    "login --backend admin --url " + adminServer.baseUrl() + " --username admin",
+                    "exit"
+            ), prompts);
+
+            app.runShell(reader);
+
+            assertEquals(List.of("vempain-unauthicated> ", "vempain-file> ", "vempain-admin> "), prompts);
+            assertNull(sessionStore.load(SessionStore.BACKEND_FILE));
+            assertNotNull(sessionStore.load(SessionStore.BACKEND_ADMIN));
+        }
+    }
+
+    @Test
+    void login_toAnotherBackend_automaticallyRemovesOlderBackendSession() throws Exception {
+        try (var fileServer = new MockApiServer(); var adminServer = new MockApiServer()) {
+            fileServer.registerJson("/api/login", "[{\"token\":\"file-jwt\"}]");
+            adminServer.registerJson("/api/login", "[{\"token\":\"admin-jwt\"}]");
+
+            var sessionStore = new SessionStore();
+            PasswordReader mockReader = prompt -> "secret".toCharArray();
+            var app = new VempainFileCliApplication(sessionStore, new BackendClient(), System.out, System.err, mockReader);
+
+            app.run(new String[]{"login", "--backend", "file", "--url", fileServer.baseUrl(), "--username", "admin"});
+            assertNotNull(sessionStore.load(SessionStore.BACKEND_FILE));
+
+            app.run(new String[]{"login", "--backend", "admin", "--url", adminServer.baseUrl(), "--username", "admin"});
+
+            assertNull(sessionStore.load(SessionStore.BACKEND_FILE));
+            assertNotNull(sessionStore.load(SessionStore.BACKEND_ADMIN));
+            assertEquals(SessionStore.BACKEND_ADMIN, sessionStore.getActiveBackend());
         }
     }
 
@@ -387,8 +479,9 @@ class CliIntegrationUTC {
 
             var outBytes = new ByteArrayOutputStream();
             var errBytes = new ByteArrayOutputStream();
-            var app = new VempainFileCliApplication(new SessionStore(), new BackendClient(), new PrintStream(outBytes), new PrintStream(errBytes));
-            app.run(new String[]{"login", "--url", server.baseUrl(), "--username", "admin", "--password", "pw"});
+            PasswordReader mockReader = prompt -> "pw".toCharArray();
+            var app = new VempainFileCliApplication(new SessionStore(), new BackendClient(), new PrintStream(outBytes), new PrintStream(errBytes), mockReader);
+            app.run(new String[]{"login", "--url", server.baseUrl(), "--username", "admin"});
 
             assertTrue(errBytes.toString(StandardCharsets.UTF_8)
                     .contains("Login response did not include token"));
@@ -413,6 +506,8 @@ class CliIntegrationUTC {
                 .anyMatch(c -> "--url".equals(c.value())));
         assertTrue(loginOptionCandidates.stream()
                 .anyMatch(c -> "--username".equals(c.value())));
+        assertFalse(loginOptionCandidates.stream()
+                .anyMatch(c -> "--password".equals(c.value())));
     }
 
     @Test
@@ -471,7 +566,7 @@ class CliIntegrationUTC {
         var app = new VempainFileCliApplication(new SessionStore(), new BackendClient(), System.out, System.err);
         var completer = app.createShellCompleterForTests();
 
-        assertEquals(Set.of("--url", "--username", "--password"),
+        assertEquals(Set.of("--backend", "-b", "--url", "--username"),
                 optionValues(completer, "login"));
         assertEquals(Set.of("-t", "--type", "-p", "--page", "-s", "--size", "--sort-by", "--direction", "--search", "--case-sensitive"),
                 optionValues(completer, "files-list"));
@@ -482,6 +577,8 @@ class CliIntegrationUTC {
                 optionValues(completer, "publish-gps"));
         assertEquals(Set.of("-o", "--original-directory", "-e", "--export-directory"),
                 optionValues(completer, "scan"));
+        assertEquals(Set.of("list-groups", "publish-group", "publish-groups"), optionValues(completer, "admin"));
+        assertEquals(Set.of("show", "use"), optionValues(completer, "session"));
         assertEquals(Set.of(), optionValues(completer, "logout"));
         assertEquals(Set.of(), optionValues(completer, "exit"));
         assertEquals(Set.of(), optionValues(completer, "quit"));
@@ -493,6 +590,33 @@ class CliIntegrationUTC {
         return candidates.stream()
                 .map(Candidate::value)
                 .collect(Collectors.toSet());
+    }
+
+    private LineReader scriptedReader(List<String> lines, List<String> prompts) {
+        var inputs = new ArrayDeque<>(lines);
+        return (LineReader) Proxy.newProxyInstance(
+                LineReader.class.getClassLoader(),
+                new Class[]{LineReader.class},
+                (proxy, method, args) -> {
+                    if ("readLine".equals(method.getName())) {
+                        if (args != null && args.length > 0 && args[0] instanceof String prompt) {
+                            prompts.add(prompt);
+                        }
+                        var next = inputs.poll();
+                        if (next == null) {
+                            throw new EndOfFileException();
+                        }
+                        return next;
+                    }
+                    if (method.getReturnType().equals(boolean.class)) {
+                        return false;
+                    }
+                    if (method.getReturnType().equals(int.class)) {
+                        return 0;
+                    }
+                    return null;
+                }
+        );
     }
 
     private static class StubParsedLine implements ParsedLine {
