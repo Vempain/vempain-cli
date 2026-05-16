@@ -54,7 +54,7 @@ dependencies {
 }
 
 application {
-    mainClass = 'fi.poltsi.vempain.file.cli.VempainFileCliApplication'
+    mainClass = 'fi.poltsi.vempain.cli.VempainFileCliApplication'
 }
 
 tasks.named('test') {
@@ -79,7 +79,7 @@ jacocoTestCoverageVerification {
     violationRules {
         rule {
             element = 'PACKAGE'
-            includes = ['fi.poltsi.vempain.file.cli']
+            includes = ['fi.poltsi.vempain.cli']
             limit {
                 counter = 'LINE'
                 value = 'COVEREDRATIO'

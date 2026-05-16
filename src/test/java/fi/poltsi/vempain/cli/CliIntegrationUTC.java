@@ -1,4 +1,4 @@
-package fi.poltsi.vempain.file.cli;
+package fi.poltsi.vempain.cli;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
@@ -860,3 +860,4 @@ class CliIntegrationUTC {
 
 
 }
+

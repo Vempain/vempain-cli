@@ -1,4 +1,4 @@
-package fi.poltsi.vempain.file.cli;
+package fi.poltsi.vempain.cli;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -96,4 +96,5 @@ class SessionStoreUTC {
         assertTrue(ex.getMessage().contains("No stored session"));
     }
 }
+
 
