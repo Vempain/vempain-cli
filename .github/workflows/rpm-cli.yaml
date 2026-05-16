@@ -1,0 +1,26 @@
+name: CLI RPM Package
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: read
+
+jobs:
+  rpm:
+    uses: Vempain/vempain-workflows/.github/workflows/rpm-cli-package.yaml@main
+    with:
+      version_file: 'VERSION'
+      gradle_task: 'fatJar'
+      jar_path: 'build/libs/vf-cli.jar'
+      spec_file: 'packaging/rpm/vempain-file-cli.spec'
+      source_jar_path: 'packaging/rpm/vf-cli.jar'
+      wrapper_script_path: 'vf-cli'
+      jre_package: 'java-25-openjdk-headless'
+      artifact_name: 'vempain-file-cli-rpm'
+    secrets: inherit
+

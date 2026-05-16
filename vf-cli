@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+JAR_PATH="/usr/lib/vempain/file/vf-cli.jar"
+
+if ! command -v java >/dev/null 2>&1; then
+	echo "Error: java runtime not found in PATH" >&2
+	exit 127
+fi
+
+if [[ ! -f "$JAR_PATH" ]]; then
+	echo "Error: CLI jar not found at $JAR_PATH" >&2
+	exit 1
+fi
+
+exec java -jar "$JAR_PATH" "$@"
+

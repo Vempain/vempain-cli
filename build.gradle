@@ -1,0 +1,114 @@
+plugins {
+    id 'application'
+    id 'java'
+    id 'jacoco'
+}
+
+group = 'fi.poltsi.vempain'
+version = project.hasProperty("releaseVersion") ? project.releaseVersion : '0.0.1-SNAPSHOT'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of("${javaVersion}")
+    }
+}
+
+repositories {
+    mavenLocal()
+    mavenCentral()
+    maven {
+        url = "https://maven.pkg.github.com/Vempain/vempain-auth"
+        credentials {
+            username = project.findProperty("gpr.user") ?: System.getenv("GITHUB_ACTOR")
+            password = project.findProperty("gpr.token") ?: System.getenv("GITHUB_TOKEN")
+        }
+    }
+    maven {
+        url = "https://maven.pkg.github.com/Vempain/vempain-file-backend"
+        credentials {
+            username = project.findProperty("gpr.user") ?: System.getenv("GITHUB_ACTOR")
+            password = project.findProperty("gpr.token") ?: System.getenv("GITHUB_TOKEN")
+        }
+    }
+    maven {
+        url = "https://maven.pkg.github.com/Vempain/vempain-admin-backend"
+        credentials {
+            username = project.findProperty("gpr.user") ?: System.getenv("GITHUB_ACTOR")
+            password = project.findProperty("gpr.token") ?: System.getenv("GITHUB_TOKEN")
+        }
+    }
+}
+
+dependencies {
+    // Add Vempain API package dependencies when backend-specific typed DTO usage is enabled.
+    // implementation "fi.poltsi.vempain:vempain-auth-core:${vempainAuthVersion}"
+    // implementation "fi.poltsi.vempain:vempain-auth-api:${vempainAuthVersion}"
+    // implementation "fi.poltsi.vempain:vempain-file-backend-api:${vempainFileVersion}"
+    // implementation "fi.poltsi.vempain:vempain-admin-backend-api:${vempainAdminVersion}"
+    implementation "com.beust:jcommander:1.82"
+    implementation "org.jline:jline:${jlineVersion}"
+    implementation "org.json:json:${jsonVersion}"
+    testImplementation "org.junit.jupiter:junit-jupiter:${junitVersion}"
+    testImplementation "org.junit.platform:junit-platform-launcher:${junitVersion}"
+    testImplementation "org.mockito:mockito-junit-jupiter:${mockitoVersion}"
+}
+
+application {
+    mainClass = 'fi.poltsi.vempain.file.cli.VempainFileCliApplication'
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+    finalizedBy jacocoTestReport
+}
+
+jacoco {
+    toolVersion = "${jacocoVersion}"
+}
+
+jacocoTestReport {
+    dependsOn test
+    reports {
+        xml.required = true
+        html.required = true
+    }
+}
+
+jacocoTestCoverageVerification {
+    dependsOn test
+    violationRules {
+        rule {
+            element = 'PACKAGE'
+            includes = ['fi.poltsi.vempain.file.cli']
+            limit {
+                counter = 'LINE'
+                value = 'COVEREDRATIO'
+                minimum = 0.90
+            }
+        }
+    }
+}
+
+jar {
+    manifest {
+        attributes('Main-Class': application.mainClass.get())
+    }
+}
+
+tasks.register('fatJar', Jar) {
+    group = 'build'
+    description = 'Builds a runnable fat jar for the CLI module.'
+    archiveFileName = 'vf-cli.jar'
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    dependsOn configurations.runtimeClasspath
+    from sourceSets.main.output
+    from {
+        configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
+    }
+    manifest {
+        attributes('Main-Class': application.mainClass.get())
+    }
+}
+
+
+
