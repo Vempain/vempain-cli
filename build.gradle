@@ -5,11 +5,11 @@ plugins {
 }
 
 group = 'fi.poltsi.vempain'
-version = project.hasProperty("releaseVersion") ? project.releaseVersion : '0.0.1-SNAPSHOT'
+version = libs.versions.release.get()
 
 java {
     toolchain {
-        languageVersion = JavaLanguageVersion.of("${javaVersion}")
+        languageVersion = JavaLanguageVersion.of(libs.versions.java.get())
     }
 }
 
@@ -41,16 +41,16 @@ repositories {
 
 dependencies {
     // Add Vempain API package dependencies when backend-specific typed DTO usage is enabled.
-    // implementation "fi.poltsi.vempain:vempain-auth-core:${vempainAuthVersion}"
-    // implementation "fi.poltsi.vempain:vempain-auth-api:${vempainAuthVersion}"
-    // implementation "fi.poltsi.vempain:vempain-file-backend-api:${vempainFileVersion}"
-    // implementation "fi.poltsi.vempain:vempain-admin-backend-api:${vempainAdminVersion}"
-    implementation "com.beust:jcommander:1.82"
-    implementation "org.jline:jline:${jlineVersion}"
-    implementation "org.json:json:${jsonVersion}"
-    testImplementation "org.junit.jupiter:junit-jupiter:${junitVersion}"
-    testImplementation "org.junit.platform:junit-platform-launcher:${junitVersion}"
-    testImplementation "org.mockito:mockito-junit-jupiter:${mockitoVersion}"
+    // implementation "fi.poltsi.vempain:vempain-auth-core:${libs.versions.vempain.auth.get()}"
+    // implementation "fi.poltsi.vempain:vempain-auth-api:${libs.versions.vempain.auth.get()}"
+    // implementation "fi.poltsi.vempain:vempain-file-backend-api:${libs.versions.vempain.file.get()}"
+    // implementation "fi.poltsi.vempain:vempain-admin-backend-api:${libs.versions.vempain.admin.get()}"
+    implementation "com.beust:jcommander:${libs.versions.jcommander.get()}"
+    implementation "org.jline:jline:${libs.versions.jline.get()}"
+    implementation "org.json:json:${libs.versions.json.get()}"
+    testImplementation "org.junit.jupiter:junit-jupiter:${libs.versions.junit.get()}"
+    testImplementation "org.junit.platform:junit-platform-launcher:${libs.versions.junit.get()}"
+    testImplementation "org.mockito:mockito-junit-jupiter:${libs.versions.mockito.get()}"
 }
 
 application {
@@ -63,7 +63,7 @@ tasks.named('test') {
 }
 
 jacoco {
-    toolVersion = "${jacocoVersion}"
+    toolVersion = libs.versions.jacoco.get()
 }
 
 jacocoTestReport {
@@ -109,6 +109,5 @@ tasks.register('fatJar', Jar) {
         attributes('Main-Class': application.mainClass.get())
     }
 }
-
 
 
