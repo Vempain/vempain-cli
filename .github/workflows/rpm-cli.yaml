@@ -22,5 +22,6 @@ jobs:
       wrapper_script_path: 'vf-cli'
       jre_package: 'java-25-openjdk-headless'
       artifact_name: 'vempain-file-cli-rpm'
-    secrets: inherit
-
+    secrets:
+      VEMPAIN_ACTION_TOKEN: ${{ secrets.VEMPAIN_ACTION_TOKEN }}
+      COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
