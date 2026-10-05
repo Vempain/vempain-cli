@@ -26,16 +26,14 @@ Current implementation supports both Vempain File and Vempain Admin backend APIs
 
 ## Repository structure
 
-- `src/main/java/fi/poltsi/vempain/cli/` - CLI runtime code
-- `src/test/java/fi/poltsi/vempain/cli/` - unit/integration tests
+- `src/main/java/fi/poltsi/vempain/cli/` - CLI runtime code (`core/`, `file/`, `admin/` sub-packages)
+- `src/test/java/fi/poltsi/vempain/cli/` - `*UTC` tests against an in-process HTTP stub
 - `packaging/rpm/` - RPM spec and packaging sources
 - `vf-cli` - wrapper script for packaged installations
-- `TODO-Vempain-Admin.md` - follow-up implementation plan for Admin backend support
 
 ## Build
 
 ```bash
-cd /home/poltsi/Work/Vempain/vempain-cli
 ./gradlew clean test fatJar
 ```
 
@@ -88,7 +86,6 @@ Session is stored at:
 ## Related docs
 
 - `AGENTS.md` - repository-specific engineering guidance
-- `TODO-Vempain-Admin.md` - planned Admin backend command support
 
 ## Planned backend API dependencies
 
