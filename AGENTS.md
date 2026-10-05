@@ -55,6 +55,7 @@ If private package resolution is needed:
 ## Conventions to preserve
 
 - Keep all API JSON field names snake_case (no camelCase request/response fields).
+- Prefer Lombok annotations for applicable Java boilerplate such as constructors, accessors, builders, and logging, unless they obscure behavior or conflict with framework requirements.
 - Prefer Jackson v3 `tools.jackson.databind.*` APIs when adding DTO mapping code.
 - Keep CLI command parsing thin and move reusable HTTP/session behavior into dedicated classes.
 - Preserve test suffix conventions: `UTC` for unit tests.
@@ -66,4 +67,6 @@ If private package resolution is needed:
 - Packaging assets (`vf-cli`, RPM spec) were moved here as part of the migration.
 - Follow-up Admin functionality is tracked in `TODO-Vempain-Admin.md`.
 
+## Tag ACL rule
 
+Tags are metadata, not ACL-bearing resources. Tag entities have no ACL information, so tag list, search, and mutation endpoints must not perform ACL checks on tags. ACL checks apply only to resources that explicitly carry an ACL.
