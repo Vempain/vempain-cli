@@ -1,14 +1,23 @@
 version: 2
+
+# The CLI only uses Maven Central dependencies today, so no private registry is declared. If the typed
+# fi.poltsi.vempain:*-api dependencies in build.gradle are enabled, add the maven-github registry block used by the
+# backends (url https://maven.pkg.github.com/Vempain/*, VEMPAIN_ACTION_USER/VEMPAIN_ACTION_TOKEN) and set
+# registries: "*" on the gradle entry.
+
 updates:
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+    groups:
+      github-actions:
+        update-types: [ minor, patch, major ]
+
   - package-ecosystem: "gradle"
     directory: "/"
-    registries: "*"
     schedule:
-      interval: weekly
+      interval: "weekly"
     groups:
       weekly-dependencies:
         applies-to: version-updates

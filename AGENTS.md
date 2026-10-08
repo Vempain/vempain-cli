@@ -59,6 +59,8 @@ in `~/.gradle/gradle.properties` for GitHub Packages.
 
 ## CI
 
+- Dependabot (`.github/dependabot.yaml`) covers GitHub Actions and Gradle from Maven Central only; it declares no private registry. If the
+  typed `fi.poltsi.vempain:*-api` dependencies are enabled, add the `maven-github` registry block used by the backends and `registries: "*"`.
 - `.github/workflows/ci.yaml` runs tests and `fatJar` on pull requests and `main`.
 - `.github/workflows/rpm-cli.yaml` delegates to `Vempain/vempain-workflows/.github/workflows/rpm-cli-package.yaml`; keep `spec_file`, `jar_path`
   and `wrapper_script_path` in sync with the paths above.
