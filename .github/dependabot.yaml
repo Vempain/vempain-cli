@@ -1,0 +1,19 @@
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "gradle"
+    directory: "/"
+    registries: "*"
+    schedule:
+      interval: weekly
+    groups:
+      weekly-dependencies:
+        applies-to: version-updates
+        patterns: [ "*" ]
+        update-types: [ minor, patch, major ]
+      security-dependencies:
+        applies-to: security-updates
+        patterns: [ "*" ]
