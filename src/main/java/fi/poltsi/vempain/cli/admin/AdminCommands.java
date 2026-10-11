@@ -9,8 +9,6 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.PrintStream;
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 
 public class AdminCommands {
@@ -28,24 +26,21 @@ public class AdminCommands {
 	public void listGroups(AdminListGroupsCommand command, SessionStore.Session session) throws Exception {
 		var details = command.details == null ? "FULL" : command.details.toUpperCase(Locale.ROOT);
 
-		JSONObject response;
-		if (command.search != null || command.page != null || command.size != null) {
-			var page = command.page == null ? 0 : command.page;
-			var size = command.size == null ? 25 : command.size;
-			var query = new StringBuilder("/content-management/galleries/search?page=")
-					.append(page)
-					.append("&size=")
-					.append(size);
-			if (command.search != null && !command.search.isBlank()) {
-				query.append("&search=")
-				     .append(urlEncode(command.search));
-			}
-			response = transport.getJsonFlexible(session, query.toString());
-		} else {
-			response = transport.getJsonFlexible(session, "/content-management/galleries?details=" + urlEncode(details));
+		var request = new JSONObject()
+				.put("page", command.page == null ? 0 : command.page)
+				.put("size", command.size == null ? 25 : command.size)
+				.put("sort_by", "short_name")
+				.put("direction", "ASC")
+				.put("case_sensitive", false);
+		if (command.search != null && !command.search.isBlank()) {
+			request.put("search", command.search);
 		}
+		var response = transport.postJson(session, "/content-management/galleries/paged-list", request);
 
-		var items = response.optJSONArray("items");
+		var items = response.optJSONArray("content");
+		if (items == null) {
+			items = response.optJSONArray("items");
+		}
 		if (items == null || items.isEmpty()) {
 			out.println("No admin groups found.");
 			return;
@@ -57,7 +52,7 @@ public class AdminCommands {
 			var item = items.getJSONObject(i);
 			out.printf("%-8d %-36s %-60s%n",
 					   item.optLong("id", 0L),
-					   formatter.truncate(item.optString("shortName", ""), 36),
+					   formatter.truncate(item.optString("short_name", ""), 36),
 					   formatter.truncate(item.optString("description", ""), 60));
 		}
 
@@ -72,11 +67,11 @@ public class AdminCommands {
 	public void publishGroup(AdminPublishGroupCommand command, SessionStore.Session session) throws Exception {
 		var request = new JSONObject().put("id", command.id);
 		if (command.message != null && !command.message.isBlank()) {
-			request.put("publishMessage", command.message);
+			request.put("publish_message", command.message);
 		}
 		if (command.publishDatetime != null && !command.publishDatetime.isBlank()) {
-			request.put("publishSchedule", true);
-			request.put("publishDateTime", command.publishDatetime);
+			request.put("publish_schedule", true);
+			request.put("publish_date_time", command.publishDatetime);
 		}
 		var response = transport.patchJson(session, "/content-management/galleries/publish", request);
 		out.println(response.toString(2));
@@ -93,13 +88,9 @@ public class AdminCommands {
 		if (ids.isEmpty()) {
 			throw new IllegalArgumentException("Provide at least one gallery id with --ids");
 		}
-		var request  = new JSONObject().put("galleryIds", ids);
+		var request = new JSONObject().put("gallery_ids", ids);
 		var response = transport.postJson(session, "/content-management/galleries/publish-selected", request);
 		out.println(response.toString(2));
-	}
-
-	private String urlEncode(String value) {
-		return URLEncoder.encode(value, StandardCharsets.UTF_8);
 	}
 
 	@Parameters(commandDescription = "Admin backend commands")
@@ -134,4 +125,3 @@ public class AdminCommands {
 		public String ids;
 	}
 }
-
