@@ -5,6 +5,7 @@ import com.beust.jcommander.Parameter;
 import com.beust.jcommander.ParameterException;
 import com.beust.jcommander.Parameters;
 import fi.poltsi.vempain.cli.admin.AdminCommands;
+import fi.poltsi.vempain.cli.core.BackendVersionValidator;
 import fi.poltsi.vempain.cli.core.HttpTransport;
 import fi.poltsi.vempain.cli.core.PasswordReader;
 import fi.poltsi.vempain.cli.core.SessionStore;
@@ -216,6 +217,8 @@ public class CommandRouter {
 		if (token.isBlank()) {
 			throw new IllegalStateException("Login response did not include token");
 		}
+		var version = transport.getJson(baseUrl, "/version", token);
+		BackendVersionValidator.validate(version);
 		sessionStore.save(backend, baseUrl, token);
 		out.println("Login successful. Session saved for backend '" + backend + "' at " + baseUrl);
 	}

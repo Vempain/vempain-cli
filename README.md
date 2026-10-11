@@ -79,6 +79,35 @@ java -jar build/libs/vf-cli.jar scan --original-directory /music
 java -jar build/libs/vf-cli.jar shell
 ```
 
+### Production authentication
+
+The CLI does not know backend URLs or credentials automatically. Authenticate before running commands that call a backend; the password is requested
+interactively and is not passed on the command line. The URL must point to the backend API context, normally ending in `/api`:
+
+```bash
+vf-cli login --backend file --url https://files.example.com/api --username <file-backend-user>
+vf-cli session show
+vf-cli publish-files --ids-file ../site_file_202610111824.csv
+```
+
+`publish-files` requires a session for the **file backend**. The file backend then uses its configured service-to-service API token to send the files to
+the admin backend; an admin-backend CLI login is not required for this operation. A `401 Unauthorized` response from `/publish/files` means that the
+file-backend session is missing, expired, or was created against the wrong URL. Log in again with `--backend file` and verify the saved URL with
+`vf-cli session show`.
+
+If the deployed file backend predates the bulk endpoint, the CLI detects its `404` response and falls back to submitting the IDs one at a time through
+`POST /publish/file`. This compatibility path creates one background task per file; deploying the current file backend is recommended for large input files.
+
+The same setup can be performed in shell mode, which is useful when running several commands:
+
+```bash
+vf-cli shell
+vempain-file> login --backend file --url https://files.example.com/api --username <file-backend-user>
+vempain-file> session show
+vempain-file> publish-files --ids-file ../site_file_202610111824.csv
+vempain-file> exit
+```
+
 ## Session storage
 
 Session is stored at:

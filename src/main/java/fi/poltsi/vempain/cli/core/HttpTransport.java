@@ -51,9 +51,13 @@ public class HttpTransport {
 	}
 
 	public JSONObject getJson(SessionStore.Session session, String path) throws IOException, InterruptedException {
-		var response = request("GET", session.baseUrl(), path, session.token(), null, "application/json");
+		return getJson(session.baseUrl(), path, session.token());
+	}
+
+	public JSONObject getJson(String baseUrl, String path, String token) throws IOException, InterruptedException {
+		var response = request("GET", baseUrl, path, token, null, "application/json");
 		if (response.statusCode() / 100 != 2) {
-			throw new IOException("GET " + path + " failed: HTTP " + response.statusCode() + " body: " + responseBody(response));
+			throw requestFailure("GET", baseUrl, path, response);
 		}
 		return new JSONObject(responseBody(response));
 	}
@@ -61,7 +65,7 @@ public class HttpTransport {
 	public JSONObject getJsonFlexible(SessionStore.Session session, String path) throws IOException, InterruptedException {
 		var response = request("GET", session.baseUrl(), path, session.token(), null, "application/json");
 		if (response.statusCode() / 100 != 2) {
-			throw new IOException("GET " + path + " failed: HTTP " + response.statusCode() + " body: " + responseBody(response));
+			throw requestFailure("GET", session.baseUrl(), path, response);
 		}
 		var payload = responseBody(response).trim();
 		if (payload.isEmpty()) {
@@ -76,7 +80,7 @@ public class HttpTransport {
 	public JSONObject postJson(SessionStore.Session session, String path, JSONObject body) throws IOException, InterruptedException {
 		var response = request("POST", session.baseUrl(), path, session.token(), body.toString(), "application/json");
 		if (response.statusCode() / 100 != 2) {
-			throw new IOException("POST " + path + " failed: HTTP " + response.statusCode() + " body: " + responseBody(response));
+			throw requestFailure("POST", session.baseUrl(), path, response);
 		}
 		var payload = responseBody(response).trim();
 		if (payload.isEmpty()) {
@@ -91,7 +95,7 @@ public class HttpTransport {
 	public JSONObject patchJson(SessionStore.Session session, String path, JSONObject body) throws IOException, InterruptedException {
 		var response = request("PATCH", session.baseUrl(), path, session.token(), body.toString(), "application/json");
 		if (response.statusCode() / 100 != 2) {
-			throw new IOException("PATCH " + path + " failed: HTTP " + response.statusCode() + " body: " + responseBody(response));
+			throw requestFailure("PATCH", session.baseUrl(), path, response);
 		}
 		var payload = responseBody(response).trim();
 		if (payload.isEmpty()) {
@@ -106,7 +110,7 @@ public class HttpTransport {
 	public HttpResponse<byte[]> getBytes(SessionStore.Session session, String path) throws IOException, InterruptedException {
 		var response = request("GET", session.baseUrl(), path, session.token(), null, "*/*");
 		if (response.statusCode() / 100 != 2) {
-			throw new IOException("GET " + path + " failed: HTTP " + response.statusCode() + " body: " + responseBody(response));
+			throw requestFailure("GET", session.baseUrl(), path, response);
 		}
 		return response;
 	}
@@ -142,5 +146,8 @@ public class HttpTransport {
 	private String responseBody(HttpResponse<byte[]> response) {
 		return new String(response.body(), StandardCharsets.UTF_8);
 	}
-}
 
+	private IOException requestFailure(String method, String baseUrl, String path, HttpResponse<byte[]> response) {
+		return new IOException(method + " " + baseUrl + path + " failed: HTTP " + response.statusCode() + " body: " + responseBody(response));
+	}
+}

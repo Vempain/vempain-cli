@@ -712,6 +712,7 @@ class CliIntegrationUTC {
 
 		private MockApiServer() throws IOException {
 			server = HttpServer.create(new InetSocketAddress(0), 0);
+			registerJson("/api/version", "{\"version\":\"0.0.1-SNAPSHOT\",\"service\":\"test\"}");
 			server.start();
 		}
 

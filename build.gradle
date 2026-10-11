@@ -91,7 +91,7 @@ jacocoTestCoverageVerification {
 
 jar {
     manifest {
-        attributes('Main-Class': application.mainClass.get())
+        attributes('Main-Class': application.mainClass.get(), 'Implementation-Version': project.version)
     }
 }
 
@@ -106,8 +106,7 @@ tasks.register('fatJar', Jar) {
         configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
     }
     manifest {
-        attributes('Main-Class': application.mainClass.get())
+        attributes('Main-Class': application.mainClass.get(), 'Implementation-Version': project.version)
     }
 }
-
 

@@ -9,6 +9,7 @@ import org.jline.reader.Candidate;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.io.IOException;
 import java.io.PrintStream;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
@@ -151,9 +152,37 @@ public class FileCommands {
 		}
 
 		var request  = new JSONObject().put("file_ids", new JSONArray(ids));
-		var response = transport.postJson(session, "/publish/files", request);
-		out.printf("Submitted %d file IDs for publishing.%n", ids.size());
-		out.println(response.toString(2));
+		try {
+			var response = transport.postJson(session, "/publish/files", request);
+			out.printf("Submitted %d file IDs for publishing.%n", ids.size());
+			out.println(response.toString(2));
+		} catch (IOException e) {
+			if (!e.getMessage()
+			      .contains("HTTP 404")) {
+				throw e;
+			}
+			out.println("Bulk publishing is not available on this file backend; falling back to POST /publish/file for each ID.");
+			publishFilesIndividually(session, ids);
+		}
+	}
+
+	private void publishFilesIndividually(SessionStore.Session session, Set<Long> ids) throws Exception {
+		var failures  = new LinkedHashSet<String>();
+		var submitted = 0;
+		for (var id : ids) {
+			try {
+				transport.postJson(session, "/publish/file", new JSONObject().put("file_id", id));
+				submitted++;
+			} catch (IOException e) {
+				failures.add(id + ": " + e.getMessage());
+			}
+		}
+		out.printf("Submitted %d of %d file IDs individually.%n", submitted, ids.size());
+		if (!failures.isEmpty()) {
+			out.println("Failed file IDs:");
+			failures.forEach(out::println);
+			throw new IOException("Some file IDs could not be submitted");
+		}
 	}
 
 	public void scan(ScanCommand command) throws Exception {
