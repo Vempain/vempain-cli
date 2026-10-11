@@ -80,7 +80,7 @@ class SessionStoreUTC {
 	}
 
 	@Test
-	void save_loggingIntoAnotherBackendReplacesOldSession() throws Exception {
+	void save_loggingIntoAnotherBackendKeepsOldSession() throws Exception {
 		sessionStore.save(SessionStore.BACKEND_FILE, "localhost:8080", "file-token");
 		assertEquals("file-token", sessionStore.load(SessionStore.BACKEND_FILE)
 		                                       .token());
@@ -88,7 +88,8 @@ class SessionStoreUTC {
 
 		sessionStore.save(SessionStore.BACKEND_ADMIN, "localhost:9090", "admin-token");
 
-		assertNull(sessionStore.load(SessionStore.BACKEND_FILE));
+		assertEquals("file-token", sessionStore.load(SessionStore.BACKEND_FILE)
+											   .token());
 		assertEquals("admin-token", sessionStore.load(SessionStore.BACKEND_ADMIN)
 		                                        .token());
 		assertEquals(SessionStore.BACKEND_ADMIN, sessionStore.getActiveBackend());
@@ -104,5 +105,4 @@ class SessionStoreUTC {
 		             .contains("No stored session"));
 	}
 }
-
 

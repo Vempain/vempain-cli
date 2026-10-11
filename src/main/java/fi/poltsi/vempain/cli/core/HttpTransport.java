@@ -107,6 +107,13 @@ public class HttpTransport {
 		return new JSONObject(payload);
 	}
 
+	public void delete(SessionStore.Session session, String path) throws IOException, InterruptedException {
+		var response = request("DELETE", session.baseUrl(), path, session.token(), null, "application/json");
+		if (response.statusCode() / 100 != 2) {
+			throw requestFailure("DELETE", session.baseUrl(), path, response);
+		}
+	}
+
 	public HttpResponse<byte[]> getBytes(SessionStore.Session session, String path) throws IOException, InterruptedException {
 		var response = request("GET", session.baseUrl(), path, session.token(), null, "*/*");
 		if (response.statusCode() / 100 != 2) {
@@ -136,6 +143,8 @@ public class HttpTransport {
 		} else if ("PATCH".equals(method)) {
 			builder.header("Content-Type", "application/json");
 			builder.method("PATCH", HttpRequest.BodyPublishers.ofString(body == null ? "{}" : body, StandardCharsets.UTF_8));
+		} else if ("DELETE".equals(method)) {
+			builder.DELETE();
 		} else {
 			builder.GET();
 		}

@@ -6,10 +6,14 @@ import com.beust.jcommander.ParameterException;
 import com.beust.jcommander.Parameters;
 import fi.poltsi.vempain.cli.admin.AdminCommands;
 import fi.poltsi.vempain.cli.core.BackendVersionValidator;
+import fi.poltsi.vempain.cli.core.CommandHistory;
 import fi.poltsi.vempain.cli.core.HttpTransport;
 import fi.poltsi.vempain.cli.core.PasswordReader;
 import fi.poltsi.vempain.cli.core.SessionStore;
+import fi.poltsi.vempain.cli.core.TaskClient;
+import fi.poltsi.vempain.cli.core.TaskMonitor;
 import fi.poltsi.vempain.cli.file.FileCommands;
+import fi.poltsi.vempain.cli.task.TaskCommands;
 import org.jline.reader.Candidate;
 import org.jline.reader.Completer;
 import org.jline.reader.EndOfFileException;
@@ -30,7 +34,7 @@ import java.util.stream.Collectors;
 public class CommandRouter {
 
 	private static final List<String> BASE_COMMANDS = List.of(
-			"login", "files-list", "file-show", "publish-music", "publish-gps", "publish-files", "scan", "admin", "session", "logout", "shell", "exit", "quit"
+			"login", "files-list", "file-show", "publish-music", "publish-gps", "publish-files", "scan", "admin", "tasks", "task-monitor", "task-cancel", "session", "logout", "shell", "exit", "quit"
 	);
 
 	private static final Map<String, List<String>> COMMAND_OPTIONS = commandOptions();
@@ -41,7 +45,9 @@ public class CommandRouter {
 	private final PrintStream    err;
 	private final FileCommands   fileCommands;
 	private final AdminCommands  adminCommands;
+	private final TaskCommands   taskCommands;
 	private final PasswordReader passwordReader;
+	private final CommandHistory commandHistory;
 
 	private boolean shellMode;
 
@@ -50,13 +56,22 @@ public class CommandRouter {
 	}
 
 	public CommandRouter(SessionStore sessionStore, HttpTransport transport, PrintStream out, PrintStream err, PasswordReader passwordReader) {
+		this(sessionStore, transport, out, err, passwordReader, new CommandHistory());
+	}
+
+	CommandRouter(SessionStore sessionStore, HttpTransport transport, PrintStream out, PrintStream err, PasswordReader passwordReader,
+				  CommandHistory commandHistory) {
 		this.sessionStore   = sessionStore;
 		this.transport      = transport;
 		this.out            = out;
 		this.err            = err;
 		this.passwordReader = passwordReader;
-		this.fileCommands   = new FileCommands(sessionStore, transport, out);
-		this.adminCommands  = new AdminCommands(transport, out);
+		this.commandHistory = commandHistory;
+		var taskClient  = new TaskClient(transport);
+		var taskMonitor = new TaskMonitor(taskClient, out);
+		this.fileCommands  = new FileCommands(sessionStore, transport, out, taskMonitor);
+		this.adminCommands = new AdminCommands(transport, out, taskMonitor);
+		this.taskCommands  = new TaskCommands(sessionStore, taskClient, taskMonitor, out);
 	}
 
 	private static Map<String, List<String>> commandOptions() {
@@ -64,11 +79,14 @@ public class CommandRouter {
 		options.put("login", List.of("--backend", "-b", "--url", "--username"));
 		options.put("files-list", List.of("-t", "--type", "-p", "--page", "-s", "--size", "--sort-by", "--direction", "--search", "--case-sensitive"));
 		options.put("file-show", List.of("-t", "--type", "-i", "--id", "--raw", "--content-limit"));
-		options.put("publish-music", List.of());
-		options.put("publish-gps", List.of("--file-group-id", "--time-series-name"));
-		options.put("publish-files", List.of("--ids-file"));
-		options.put("scan", List.of("-o", "--original-directory", "-e", "--export-directory"));
+		options.put("publish-music", List.of("--monitor"));
+		options.put("publish-gps", List.of("--file-group-id", "--time-series-name", "--monitor"));
+		options.put("publish-files", List.of("--ids-file", "--monitor"));
+		options.put("scan", List.of("-o", "--original-directory", "-e", "--export-directory", "--monitor"));
 		options.put("admin", List.of());
+		options.put("tasks", List.of("--backend", "-b", "--raw"));
+		options.put("task-monitor", List.of("--task-id", "--backend", "-b", "--interval-ms"));
+		options.put("task-cancel", List.of("--task-id", "--backend", "-b"));
 		options.put("session", List.of());
 		options.put("logout", List.of());
 		options.put("shell", List.of());
@@ -81,6 +99,7 @@ public class CommandRouter {
 
 		var list       = new FileCommands.ListCommand();
 		var show       = new FileCommands.ShowCommand();
+		var publishMusic = new PublishMusicCommand();
 		var publishGps = new FileCommands.PublishGpsCommand();
 		var publishFiles = new FileCommands.PublishFilesCommand();
 		var scan       = new FileCommands.ScanCommand();
@@ -96,6 +115,9 @@ public class CommandRouter {
 
 		var logout = new LogoutCommand();
 		var shell  = new ShellCommand();
+		var tasks       = new TaskCommands.ListCommand();
+		var taskMonitor = new TaskCommands.MonitorCommand();
+		var taskCancel  = new TaskCommands.CancelCommand();
 
 		var jc = JCommander.newBuilder()
 						   .programName("vempain-file-cli")
@@ -103,11 +125,14 @@ public class CommandRouter {
 						   .addCommand("login", login)
 						   .addCommand("files-list", list)
 						   .addCommand("file-show", show)
-						   .addCommand("publish-music", new PublishMusicCommand())
+						   .addCommand("publish-music", publishMusic)
 						   .addCommand("publish-gps", publishGps)
 						   .addCommand("publish-files", publishFiles)
 						   .addCommand("scan", scan)
 						   .addCommand("admin", admin)
+						   .addCommand("tasks", tasks)
+						   .addCommand("task-monitor", taskMonitor)
+						   .addCommand("task-cancel", taskCancel)
 						   .addCommand("session", session)
 						   .addCommand("logout", logout)
 						   .addCommand("shell", shell)
@@ -154,11 +179,14 @@ public class CommandRouter {
 				case "login" -> login(login);
 				case "files-list" -> fileCommands.listFiles(list);
 				case "file-show" -> fileCommands.showFile(show);
-				case "publish-music" -> fileCommands.publishMusic();
+				case "publish-music" -> fileCommands.publishMusic(publishMusic.monitor);
 				case "publish-gps" -> fileCommands.publishGps(publishGps);
 				case "publish-files" -> fileCommands.publishFiles(publishFiles);
 				case "scan" -> fileCommands.scan(scan);
 				case "admin" -> admin(adminJc, adminListGroups, adminPublishGroup, adminPublishGroups);
+				case "tasks" -> taskCommands.list(tasks);
+				case "task-monitor" -> taskCommands.monitor(taskMonitor);
+				case "task-cancel" -> taskCommands.cancel(taskCancel);
 				case "session" -> session(sessionJc, sessionShow, sessionUse);
 				case "logout" -> logout();
 				case "shell" -> {
@@ -188,6 +216,11 @@ public class CommandRouter {
 					var trimmed = line.trim();
 					if (trimmed.isEmpty()) {
 						continue;
+					}
+					try {
+						commandHistory.append(trimmed);
+					} catch (java.io.IOException e) {
+						err.println("Warning: could not write command history: " + e.getMessage());
 					}
 					if ("exit".equalsIgnoreCase(trimmed) || "quit".equalsIgnoreCase(trimmed)) {
 						break;
@@ -378,6 +411,8 @@ public class CommandRouter {
 
 	@Parameters(commandDescription = "Generate and publish music dataset")
 	private static class PublishMusicCommand {
+		@Parameter(names = "--monitor", description = "Open the full-screen task monitor after submission")
+		boolean monitor;
 	}
 
 	@Parameters(commandDescription = "Session management commands")
@@ -471,8 +506,8 @@ public class CommandRouter {
 			var subcommand = words.size() > 1 ? words.get(1) : "";
 			var options = switch (subcommand) {
 				case "list-groups" -> List.of("--details", "--search", "--page", "--size");
-				case "publish-group" -> List.of("--id", "--message", "--publish-datetime");
-				case "publish-groups" -> List.of("--ids");
+				case "publish-group" -> List.of("--id", "--message", "--publish-datetime", "--monitor");
+				case "publish-groups" -> List.of("--ids", "--monitor");
 				default -> List.<String>of();
 			};
 

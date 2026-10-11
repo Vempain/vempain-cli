@@ -5,6 +5,8 @@ import com.beust.jcommander.Parameters;
 import fi.poltsi.vempain.cli.core.HttpTransport;
 import fi.poltsi.vempain.cli.core.OutputFormatter;
 import fi.poltsi.vempain.cli.core.SessionStore;
+import fi.poltsi.vempain.cli.core.TaskClient;
+import fi.poltsi.vempain.cli.core.TaskMonitor;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -16,11 +18,17 @@ public class AdminCommands {
 	private final HttpTransport   transport;
 	private final PrintStream     out;
 	private final OutputFormatter formatter;
+	private final TaskMonitor taskMonitor;
 
 	public AdminCommands(HttpTransport transport, PrintStream out) {
+		this(transport, out, new TaskMonitor(new TaskClient(transport), out));
+	}
+
+	public AdminCommands(HttpTransport transport, PrintStream out, TaskMonitor taskMonitor) {
 		this.transport = transport;
 		this.out       = out;
 		this.formatter = new OutputFormatter(out);
+		this.taskMonitor = taskMonitor;
 	}
 
 	public void listGroups(AdminListGroupsCommand command, SessionStore.Session session) throws Exception {
@@ -75,6 +83,7 @@ public class AdminCommands {
 		}
 		var response = transport.patchJson(session, "/content-management/galleries/publish", request);
 		out.println(response.toString(2));
+		monitor(response, session, command.monitor);
 	}
 
 	public void publishGroups(AdminPublishGroupsCommand command, SessionStore.Session session) throws Exception {
@@ -91,6 +100,18 @@ public class AdminCommands {
 		var request = new JSONObject().put("gallery_ids", ids);
 		var response = transport.postJson(session, "/content-management/galleries/publish-selected", request);
 		out.println(response.toString(2));
+		monitor(response, session, command.monitor);
+	}
+
+	private void monitor(JSONObject response, SessionStore.Session session, boolean requested) throws Exception {
+		if (!requested) {
+			return;
+		}
+		var taskId = TaskClient.taskId(response);
+		if (taskId == null) {
+			throw new IllegalStateException("The backend did not return a task_id; cannot monitor the request.");
+		}
+		taskMonitor.printFinal(taskMonitor.monitor(session, taskId, java.time.Duration.ofSeconds(1)));
 	}
 
 	@Parameters(commandDescription = "Admin backend commands")
@@ -117,11 +138,15 @@ public class AdminCommands {
 		public String message;
 		@Parameter(names = {"--publish-datetime"}, description = "Publish datetime in ISO-8601")
 		public String publishDatetime;
+		@Parameter(names = "--monitor", description = "Open the full-screen task monitor after submission")
+		public boolean monitor;
 	}
 
 	@Parameters(commandDescription = "Publish selected admin groups (galleries)")
 	public static class AdminPublishGroupsCommand {
 		@Parameter(names = {"--ids"}, required = true, description = "Comma-separated list of gallery IDs")
 		public String ids;
+		@Parameter(names = "--monitor", description = "Open the full-screen task monitor after submission")
+		public boolean monitor;
 	}
 }
