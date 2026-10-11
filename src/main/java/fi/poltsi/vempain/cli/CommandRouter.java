@@ -29,7 +29,7 @@ import java.util.stream.Collectors;
 public class CommandRouter {
 
 	private static final List<String> BASE_COMMANDS = List.of(
-			"login", "files-list", "file-show", "publish-music", "publish-gps", "scan", "admin", "session", "logout", "shell", "exit", "quit"
+			"login", "files-list", "file-show", "publish-music", "publish-gps", "publish-files", "scan", "admin", "session", "logout", "shell", "exit", "quit"
 	);
 
 	private static final Map<String, List<String>> COMMAND_OPTIONS = commandOptions();
@@ -65,6 +65,7 @@ public class CommandRouter {
 		options.put("file-show", List.of("-t", "--type", "-i", "--id", "--raw", "--content-limit"));
 		options.put("publish-music", List.of());
 		options.put("publish-gps", List.of("--file-group-id", "--time-series-name"));
+		options.put("publish-files", List.of("--ids-file"));
 		options.put("scan", List.of("-o", "--original-directory", "-e", "--export-directory"));
 		options.put("admin", List.of());
 		options.put("session", List.of());
@@ -80,6 +81,7 @@ public class CommandRouter {
 		var list       = new FileCommands.ListCommand();
 		var show       = new FileCommands.ShowCommand();
 		var publishGps = new FileCommands.PublishGpsCommand();
+		var publishFiles = new FileCommands.PublishFilesCommand();
 		var scan       = new FileCommands.ScanCommand();
 
 		var admin              = new AdminCommands.AdminCommand();
@@ -102,6 +104,7 @@ public class CommandRouter {
 						   .addCommand("file-show", show)
 						   .addCommand("publish-music", new PublishMusicCommand())
 						   .addCommand("publish-gps", publishGps)
+						   .addCommand("publish-files", publishFiles)
 						   .addCommand("scan", scan)
 						   .addCommand("admin", admin)
 						   .addCommand("session", session)
@@ -152,6 +155,7 @@ public class CommandRouter {
 				case "file-show" -> fileCommands.showFile(show);
 				case "publish-music" -> fileCommands.publishMusic();
 				case "publish-gps" -> fileCommands.publishGps(publishGps);
+				case "publish-files" -> fileCommands.publishFiles(publishFiles);
 				case "scan" -> fileCommands.scan(scan);
 				case "admin" -> admin(adminJc, adminListGroups, adminPublishGroup, adminPublishGroups);
 				case "session" -> session(sessionJc, sessionShow, sessionUse);
@@ -580,4 +584,3 @@ public class CommandRouter {
 		}
 	}
 }
-

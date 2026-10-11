@@ -12,6 +12,9 @@ import org.json.JSONObject;
 import java.io.PrintStream;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -118,6 +121,38 @@ public class FileCommands {
 				.put("file_group_id", command.fileGroupId)
 				.put("time_series_name", command.timeSeriesName);
 		var response = transport.postJson(session, "/data-publish/gps-timeseries", request);
+		out.println(response.toString(2));
+	}
+
+	public void publishFiles(PublishFilesCommand command) throws Exception {
+		var session    = requireSession();
+		var ids        = new LinkedHashSet<Long>();
+		int lineNumber = 0;
+		try (var lines = Files.lines(Path.of(command.idsFile), StandardCharsets.UTF_8)) {
+			for (var line : (Iterable<String>) lines::iterator) {
+				lineNumber++;
+				var value = line.trim();
+				if (value.isBlank() || value.startsWith("#")) {
+					continue;
+				}
+				try {
+					var id = Long.parseLong(value);
+					if (id <= 0) {
+						throw new NumberFormatException();
+					}
+					ids.add(id);
+				} catch (NumberFormatException e) {
+					throw new IllegalArgumentException("Invalid file ID at " + command.idsFile + ":" + lineNumber + ": " + value);
+				}
+			}
+		}
+		if (ids.isEmpty()) {
+			throw new IllegalArgumentException("The file contains no positive file IDs: " + command.idsFile);
+		}
+
+		var request  = new JSONObject().put("file_ids", new JSONArray(ids));
+		var response = transport.postJson(session, "/publish/files", request);
+		out.printf("Submitted %d file IDs for publishing.%n", ids.size());
 		out.println(response.toString(2));
 	}
 
@@ -343,6 +378,12 @@ public class FileCommands {
 		public String timeSeriesName;
 	}
 
+	@Parameters(commandDescription = "Publish files listed in a UTF-8 file, one file ID per line")
+	public static class PublishFilesCommand {
+		@Parameter(names = {"--ids-file"}, required = true, description = "File containing one file ID per line")
+		public String idsFile;
+	}
+
 	@Parameters(commandDescription = "Trigger backend file scan")
 	public static class ScanCommand {
 		@Parameter(names = {"-o", "--original-directory"}, description = "Original directory path")
@@ -351,4 +392,3 @@ public class FileCommands {
 		public String exportDirectory;
 	}
 }
-

@@ -29,6 +29,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Proxy;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -286,6 +287,29 @@ class CliIntegrationUTC {
 	}
 
 	@Test
+	void publishFiles_readsIdsFileAndSubmitsOneBulkTask() throws Exception {
+		try (var server = new MockApiServer()) {
+			server.registerJson("/api/publish/files", "{\"task_id\":\"task-42\",\"status\":\"QUEUED\"}");
+			var idsFile = tempHome.resolve("file-ids.txt");
+			Files.writeString(idsFile, "# repaired files\n42\n\n17\n42\n");
+
+			var sessionStore = new SessionStore();
+			sessionStore.save(server.baseUrl(), "jwt-bulk");
+			var outBytes = new ByteArrayOutputStream();
+			var app      = new VempainFileCliApplication(sessionStore, new HttpTransport(), new PrintStream(outBytes), System.err);
+
+			app.run(new String[]{"publish-files", "--ids-file", idsFile.toString()});
+
+			var output = outBytes.toString(StandardCharsets.UTF_8);
+			assertTrue(output.contains("Submitted 2 file IDs"));
+			assertTrue(output.contains("task-42"));
+			assertEquals("[42,17]", server.lastRequestBody()
+			                              .getJSONArray("file_ids")
+			                              .toString());
+		}
+	}
+
+	@Test
 	void errorPaths_areReportedToStderr() throws Exception {
 		var outBytes = new ByteArrayOutputStream();
 		var errBytes = new ByteArrayOutputStream();
@@ -309,11 +333,11 @@ class CliIntegrationUTC {
 	void adminWorkflow_loginListPublishAndSessionSwitch_workEndToEnd() throws Exception {
 		try (var adminServer = new MockApiServer()) {
 			adminServer.registerJson("/api/login", "[{\"token\":\"admin-jwt\"}]");
-			adminServer.registerJson("/api/content-management/galleries",
+			adminServer.registerJson("/api/content-management/galleries/paged-list",
 									 """
-                            [
-                              {"id": 7, "shortName": "Summer", "description": "Summer photos"}
-                            ]
+											 {"content": [
+											   {"id": 7, "short_name": "Summer", "description": "Summer photos"}
+											 ], "page": 0, "total_pages": 1, "total_elements": 1}
                             """);
 			adminServer.registerJson("/api/content-management/galleries/publish", "[{\"result\":\"OK\",\"message\":\"done\"}]");
 			adminServer.registerJson("/api/content-management/galleries/publish-selected", "[{\"result\":\"OK\",\"message\":\"done\"}]");
@@ -684,6 +708,7 @@ class CliIntegrationUTC {
 
 	private static class MockApiServer implements AutoCloseable {
 		private final HttpServer server;
+		private JSONObject lastRequestBody;
 
 		private MockApiServer() throws IOException {
 			server = HttpServer.create(new InetSocketAddress(0), 0);
@@ -702,6 +727,11 @@ class CliIntegrationUTC {
 			server.createContext(path, new HttpHandler() {
 				@Override
 				public void handle(HttpExchange exchange) throws IOException {
+					var body = new String(exchange.getRequestBody()
+					                              .readAllBytes(), StandardCharsets.UTF_8);
+					if (!body.isBlank()) {
+						lastRequestBody = new JSONObject(body);
+					}
 					exchange.getResponseHeaders()
 							.add("Content-Type", contentType);
 					exchange.sendResponseHeaders(200, responseBody.length);
@@ -710,6 +740,10 @@ class CliIntegrationUTC {
 					}
 				}
 			});
+		}
+
+		private JSONObject lastRequestBody() {
+			return lastRequestBody;
 		}
 
 		private void registerPathCompletionByPath(Map<String, String> responsesByPath) {
@@ -881,4 +915,3 @@ class CliIntegrationUTC {
 
 
 }
-

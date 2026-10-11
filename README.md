@@ -14,6 +14,7 @@ Current implementation supports both Vempain File and Vempain Admin backend APIs
 - Formatted tabular output for file listings with truncation for long values
 - `file-show` supports `--raw` and `--content-limit <n>`
 - Data publish commands (music + gps-time-series)
+- Bulk file publishing from a UTF-8 file of file IDs (`publish-files --ids-file`)
 - Scan command for original/export directories
 - Admin group (gallery) commands:
   - `admin list-groups`
@@ -70,6 +71,7 @@ java -jar build/libs/vf-cli.jar file-show --type music --id 42
 java -jar build/libs/vf-cli.jar file-show --type music --id 42 --content-limit 2048
 java -jar build/libs/vf-cli.jar file-show --type music --id 42 --raw
 java -jar build/libs/vf-cli.jar publish-music
+java -jar build/libs/vf-cli.jar publish-files --ids-file file-ids.txt
 java -jar build/libs/vf-cli.jar admin list-groups --details FULL
 java -jar build/libs/vf-cli.jar admin publish-group --id 7 --message "Publish now"
 java -jar build/libs/vf-cli.jar admin publish-groups --ids 7,8,9
@@ -97,4 +99,3 @@ implementation "fi.poltsi.vempain:vempain-auth-api:${vempainAuthVersion}"
 implementation "fi.poltsi.vempain:vempain-file-backend-api:${vempainFileVersion}"
 implementation "fi.poltsi.vempain:vempain-admin-backend-api:${vempainAdminVersion}"
 ```
-
