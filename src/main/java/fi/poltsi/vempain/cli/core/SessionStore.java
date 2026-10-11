@@ -68,9 +68,11 @@ public class SessionStore {
 
 		var root              = readRootJson();
 		var normalizedBackend = normalizeBackend(backend);
-		// Only one backend session is kept at a time.
-		var backends = new JSONObject();
-		root.put("backends", backends);
+		var backends = root.optJSONObject("backends");
+		if (backends == null) {
+			backends = new JSONObject();
+			root.put("backends", backends);
+		}
 		backends.put(normalizedBackend, new JSONObject()
 				.put("base_url", normalizeBaseUrl(baseUrl))
 				.put("token", token));
@@ -207,4 +209,3 @@ public class SessionStore {
 		}
 	}
 }
-

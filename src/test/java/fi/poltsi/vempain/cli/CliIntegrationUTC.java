@@ -438,13 +438,13 @@ class CliIntegrationUTC {
 			app.runShell(reader);
 
 			assertEquals(List.of("vempain-unauthicated> ", "vempain-file> ", "vempain-admin> "), prompts);
-			assertNull(sessionStore.load(SessionStore.BACKEND_FILE));
+			assertNotNull(sessionStore.load(SessionStore.BACKEND_FILE));
 			assertNotNull(sessionStore.load(SessionStore.BACKEND_ADMIN));
 		}
 	}
 
 	@Test
-	void login_toAnotherBackend_automaticallyRemovesOlderBackendSession() throws Exception {
+	void login_toAnotherBackend_keepsOlderBackendSession() throws Exception {
 		try (var fileServer = new MockApiServer(); var adminServer = new MockApiServer()) {
 			fileServer.registerJson("/api/login", "[{\"token\":\"file-jwt\"}]");
 			adminServer.registerJson("/api/login", "[{\"token\":\"admin-jwt\"}]");
@@ -458,7 +458,7 @@ class CliIntegrationUTC {
 
 			app.run(new String[]{"login", "--backend", "admin", "--url", adminServer.baseUrl(), "--username", "admin"});
 
-			assertNull(sessionStore.load(SessionStore.BACKEND_FILE));
+			assertNotNull(sessionStore.load(SessionStore.BACKEND_FILE));
 			assertNotNull(sessionStore.load(SessionStore.BACKEND_ADMIN));
 			assertEquals(SessionStore.BACKEND_ADMIN, sessionStore.getActiveBackend());
 		}
@@ -615,10 +615,12 @@ class CliIntegrationUTC {
 					 optionValues(completer, "files-list"));
 		assertEquals(Set.of("-t", "--type", "-i", "--id", "--raw", "--content-limit"),
 					 optionValues(completer, "file-show"));
-		assertEquals(Set.of(), optionValues(completer, "publish-music"));
-		assertEquals(Set.of("--file-group-id", "--time-series-name"),
+		assertEquals(Set.of("--monitor"), optionValues(completer, "publish-music"));
+		assertEquals(Set.of("--file-group-id", "--time-series-name", "--monitor"),
 					 optionValues(completer, "publish-gps"));
-		assertEquals(Set.of("-o", "--original-directory", "-e", "--export-directory"),
+		assertEquals(Set.of("--ids-file", "--monitor"),
+					 optionValues(completer, "publish-files"));
+		assertEquals(Set.of("-o", "--original-directory", "-e", "--export-directory", "--monitor"),
 					 optionValues(completer, "scan"));
 		assertEquals(Set.of("list-groups", "publish-group", "publish-groups"), optionValues(completer, "admin"));
 		assertEquals(Set.of("show", "use"), optionValues(completer, "session"));

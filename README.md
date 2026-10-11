@@ -16,6 +16,7 @@ Current implementation supports both Vempain File and Vempain Admin backend APIs
 - Data publish commands (music + gps-time-series)
 - Bulk file publishing from a UTF-8 file of file IDs (`publish-files --ids-file`)
 - Scan command for original/export directories
+- Background task listing, cancellation, and a Lanterna full-screen task monitor
 - Admin group (gallery) commands:
   - `admin list-groups`
   - `admin publish-group --id <id>`
@@ -24,6 +25,7 @@ Current implementation supports both Vempain File and Vempain Admin backend APIs
     - file types in lowercase
     - backend path completion for scan directories
   - admin/session command namespace hints
+  - shell commands appended to `~/.vempain/history` as `<datetime>\t<command>`, using `YYYY-MM-DDThh:mm:ss`
 
 ## Repository structure
 
@@ -76,6 +78,9 @@ java -jar build/libs/vf-cli.jar admin list-groups --details FULL
 java -jar build/libs/vf-cli.jar admin publish-group --id 7 --message "Publish now"
 java -jar build/libs/vf-cli.jar admin publish-groups --ids 7,8,9
 java -jar build/libs/vf-cli.jar scan --original-directory /music
+java -jar build/libs/vf-cli.jar tasks --backend file
+java -jar build/libs/vf-cli.jar task-monitor --backend file --task-id <task-id>
+java -jar build/libs/vf-cli.jar task-cancel --backend file --task-id <task-id>
 java -jar build/libs/vf-cli.jar shell
 ```
 
@@ -96,7 +101,9 @@ file-backend session is missing, expired, or was created against the wrong URL. 
 `vf-cli session show`.
 
 If the deployed file backend predates the bulk endpoint, the CLI detects its `404` response and falls back to submitting the IDs one at a time through
-`POST /publish/file`. This compatibility path creates one background task per file; deploying the current file backend is recommended for large input files.
+`POST /publish/file`. This compatibility path creates one background task per file; with `--monitor`, those tasks are monitored sequentially.
+Without `--monitor`, their accepted responses remain available through `tasks` or `task-monitor`. Deploying the current file backend is recommended
+for large input files.
 
 The same setup can be performed in shell mode, which is useful when running several commands:
 
@@ -113,6 +120,10 @@ vempain-file> exit
 Session is stored at:
 
 - `~/.config/vempain-file-cli/session.json`
+
+Shell command history is stored at:
+
+- `~/.vempain/history`
 
 ## Related docs
 

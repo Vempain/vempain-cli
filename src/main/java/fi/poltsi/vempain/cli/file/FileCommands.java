@@ -5,6 +5,8 @@ import com.beust.jcommander.Parameters;
 import fi.poltsi.vempain.cli.core.HttpTransport;
 import fi.poltsi.vempain.cli.core.OutputFormatter;
 import fi.poltsi.vempain.cli.core.SessionStore;
+import fi.poltsi.vempain.cli.core.TaskClient;
+import fi.poltsi.vempain.cli.core.TaskMonitor;
 import org.jline.reader.Candidate;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -31,12 +33,18 @@ public class FileCommands {
 	private final HttpTransport   transport;
 	private final PrintStream     out;
 	private final OutputFormatter formatter;
+	private final TaskMonitor taskMonitor;
 
 	public FileCommands(SessionStore sessionStore, HttpTransport transport, PrintStream out) {
+		this(sessionStore, transport, out, new TaskMonitor(new TaskClient(transport), out));
+	}
+
+	public FileCommands(SessionStore sessionStore, HttpTransport transport, PrintStream out, TaskMonitor taskMonitor) {
 		this.sessionStore = sessionStore;
 		this.transport    = transport;
 		this.out          = out;
 		this.formatter    = new OutputFormatter(out);
+		this.taskMonitor = taskMonitor;
 	}
 
 	public void listFiles(ListCommand command) throws Exception {
@@ -111,9 +119,14 @@ public class FileCommands {
 	}
 
 	public void publishMusic() throws Exception {
+		publishMusic(false);
+	}
+
+	public void publishMusic(boolean monitor) throws Exception {
 		var session  = requireSession();
 		var response = transport.postJson(session, "/data-publish/music", new JSONObject());
 		out.println(response.toString(2));
+		monitor(response, session, monitor);
 	}
 
 	public void publishGps(PublishGpsCommand command) throws Exception {
@@ -123,6 +136,7 @@ public class FileCommands {
 				.put("time_series_name", command.timeSeriesName);
 		var response = transport.postJson(session, "/data-publish/gps-timeseries", request);
 		out.println(response.toString(2));
+		monitor(response, session, command.monitor);
 	}
 
 	public void publishFiles(PublishFilesCommand command) throws Exception {
@@ -156,22 +170,28 @@ public class FileCommands {
 			var response = transport.postJson(session, "/publish/files", request);
 			out.printf("Submitted %d file IDs for publishing.%n", ids.size());
 			out.println(response.toString(2));
+			monitor(response, session, command.monitor);
 		} catch (IOException e) {
 			if (!e.getMessage()
 			      .contains("HTTP 404")) {
 				throw e;
 			}
 			out.println("Bulk publishing is not available on this file backend; falling back to POST /publish/file for each ID.");
-			publishFilesIndividually(session, ids);
+			publishFilesIndividually(session, ids, command.monitor);
 		}
 	}
 
-	private void publishFilesIndividually(SessionStore.Session session, Set<Long> ids) throws Exception {
+	private void publishFilesIndividually(SessionStore.Session session, Set<Long> ids, boolean monitor) throws Exception {
 		var failures  = new LinkedHashSet<String>();
 		var submitted = 0;
+		var taskIds = new LinkedHashSet<String>();
 		for (var id : ids) {
 			try {
-				transport.postJson(session, "/publish/file", new JSONObject().put("file_id", id));
+				var response = transport.postJson(session, "/publish/file", new JSONObject().put("file_id", id));
+				var taskId   = TaskClient.taskId(response);
+				if (taskId != null) {
+					taskIds.add(taskId);
+				}
 				submitted++;
 			} catch (IOException e) {
 				failures.add(id + ": " + e.getMessage());
@@ -182,6 +202,14 @@ public class FileCommands {
 			out.println("Failed file IDs:");
 			failures.forEach(out::println);
 			throw new IOException("Some file IDs could not be submitted");
+		}
+		if (monitor) {
+			if (taskIds.isEmpty()) {
+				throw new IllegalStateException("The backend did not return task_id for the fallback submissions; cannot monitor them.");
+			}
+			for (var taskId : taskIds) {
+				taskMonitor.printFinal(taskMonitor.monitor(session, taskId, java.time.Duration.ofSeconds(1)));
+			}
 		}
 	}
 
@@ -206,6 +234,7 @@ public class FileCommands {
 		} else {
 			out.println(response.toString(2));
 		}
+		monitor(response, session, command.monitor);
 	}
 
 	public void completeScanPath(List<String> words,
@@ -271,7 +300,19 @@ public class FileCommands {
 		if (session == null) {
 			throw new IllegalStateException("Not logged in for backend 'file'. Run: login --backend file --url <url> --username <user> --password <pass>");
 		}
+
 		return session;
+	}
+
+	private void monitor(JSONObject response, SessionStore.Session session, boolean requested) throws Exception {
+		if (!requested) {
+			return;
+		}
+		var taskId = TaskClient.taskId(response);
+		if (taskId == null) {
+			throw new IllegalStateException("The backend did not return a task_id; cannot monitor the request.");
+		}
+		taskMonitor.printFinal(taskMonitor.monitor(session, taskId, java.time.Duration.ofSeconds(1)));
 	}
 
 	private boolean isTextualContent(String contentType) {
@@ -405,12 +446,16 @@ public class FileCommands {
 		public long   fileGroupId;
 		@Parameter(names = {"--time-series-name"}, required = true, description = "Time-series identifier")
 		public String timeSeriesName;
+		@Parameter(names = "--monitor", description = "Open the full-screen task monitor after submission")
+		public boolean monitor;
 	}
 
 	@Parameters(commandDescription = "Publish files listed in a UTF-8 file, one file ID per line")
 	public static class PublishFilesCommand {
 		@Parameter(names = {"--ids-file"}, required = true, description = "File containing one file ID per line")
 		public String idsFile;
+		@Parameter(names = "--monitor", description = "Open the full-screen task monitor after submission")
+		public boolean monitor;
 	}
 
 	@Parameters(commandDescription = "Trigger backend file scan")
@@ -419,5 +464,7 @@ public class FileCommands {
 		public String originalDirectory;
 		@Parameter(names = {"-e", "--export-directory"}, description = "Export directory path")
 		public String exportDirectory;
+		@Parameter(names = "--monitor", description = "Open the full-screen task monitor after submission")
+		public boolean monitor;
 	}
 }
