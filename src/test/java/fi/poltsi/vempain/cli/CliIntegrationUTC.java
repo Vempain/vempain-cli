@@ -486,6 +486,8 @@ class CliIntegrationUTC {
 
 		var err = errBytes.toString(StandardCharsets.UTF_8);
 		assertTrue(err.contains("Was passed main parameter") || err.contains("Unknown option"));
+		assertTrue(outBytes.toString(StandardCharsets.UTF_8)
+						   .contains("Usage: vempain-file-cli"), "usage is printed to the router's output stream");
 	}
 
 	@Test

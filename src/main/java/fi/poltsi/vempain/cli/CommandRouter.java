@@ -4,6 +4,8 @@ import com.beust.jcommander.JCommander;
 import com.beust.jcommander.Parameter;
 import com.beust.jcommander.ParameterException;
 import com.beust.jcommander.Parameters;
+import com.beust.jcommander.internal.DefaultConsole;
+import com.googlecode.lanterna.terminal.Terminal;
 import fi.poltsi.vempain.cli.admin.AdminCommands;
 import fi.poltsi.vempain.cli.core.BackendVersionValidator;
 import fi.poltsi.vempain.cli.core.CommandHistory;
@@ -14,6 +16,7 @@ import fi.poltsi.vempain.cli.core.TaskClient;
 import fi.poltsi.vempain.cli.core.TaskMonitor;
 import fi.poltsi.vempain.cli.file.FileCommands;
 import fi.poltsi.vempain.cli.task.TaskCommands;
+import fi.poltsi.vempain.cli.tui.TuiShell;
 import org.jline.reader.Candidate;
 import org.jline.reader.Completer;
 import org.jline.reader.EndOfFileException;
@@ -22,11 +25,14 @@ import org.jline.reader.LineReaderBuilder;
 import org.jline.reader.ParsedLine;
 import org.jline.reader.UserInterruptException;
 
+import java.io.IOException;
 import java.io.PrintStream;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -38,6 +44,8 @@ public class CommandRouter {
 	);
 
 	private static final Map<String, List<String>> COMMAND_OPTIONS = commandOptions();
+
+	private static final Duration TASK_POLL_INTERVAL = Duration.ofSeconds(2);
 
 	private final SessionStore   sessionStore;
 	private final HttpTransport  transport;
@@ -61,6 +69,11 @@ public class CommandRouter {
 
 	CommandRouter(SessionStore sessionStore, HttpTransport transport, PrintStream out, PrintStream err, PasswordReader passwordReader,
 				  CommandHistory commandHistory) {
+		this(sessionStore, transport, out, err, passwordReader, commandHistory, taskClient -> new TaskMonitor(taskClient, out));
+	}
+
+	CommandRouter(SessionStore sessionStore, HttpTransport transport, PrintStream out, PrintStream err, PasswordReader passwordReader,
+				  CommandHistory commandHistory, Function<TaskClient, TaskMonitor> taskMonitorFactory) {
 		this.sessionStore   = sessionStore;
 		this.transport      = transport;
 		this.out            = out;
@@ -68,7 +81,7 @@ public class CommandRouter {
 		this.passwordReader = passwordReader;
 		this.commandHistory = commandHistory;
 		var taskClient  = new TaskClient(transport);
-		var taskMonitor = new TaskMonitor(taskClient, out);
+		var taskMonitor = taskMonitorFactory.apply(taskClient);
 		this.fileCommands  = new FileCommands(sessionStore, transport, out, taskMonitor);
 		this.adminCommands = new AdminCommands(transport, out, taskMonitor);
 		this.taskCommands  = new TaskCommands(sessionStore, taskClient, taskMonitor, out);
@@ -119,7 +132,10 @@ public class CommandRouter {
 		var taskMonitor = new TaskCommands.MonitorCommand();
 		var taskCancel  = new TaskCommands.CancelCommand();
 
+		// Usage goes to this router's output: inside the TUI, writing it to System.out would draw over the screen.
+		var console = new DefaultConsole(out);
 		var jc = JCommander.newBuilder()
+						   .console(console)
 						   .programName("vempain-file-cli")
 						   .addObject(root)
 						   .addCommand("login", login)
@@ -143,11 +159,13 @@ public class CommandRouter {
 		adminJc.addCommand("list-groups", adminListGroups);
 		adminJc.addCommand("publish-group", adminPublishGroup);
 		adminJc.addCommand("publish-groups", adminPublishGroups);
+		adminJc.setConsole(console);
 
 		var sessionJc = jc.getCommands()
 						  .get("session");
 		sessionJc.addCommand("show", sessionShow);
 		sessionJc.addCommand("use", sessionUse);
+		sessionJc.setConsole(console);
 
 		if (args.length == 0) {
 			jc.usage();
@@ -219,22 +237,9 @@ public class CommandRouter {
 			while (true) {
 				try {
 					var line = reader.readLine(shellPrompt());
-					if (line == null) {
-						continue;
-					}
-					var trimmed = line.trim();
-					if (trimmed.isEmpty()) {
-						continue;
-					}
-					try {
-						commandHistory.append(trimmed);
-					} catch (java.io.IOException e) {
-						err.println("Warning: could not write command history: " + e.getMessage());
-					}
-					if ("exit".equalsIgnoreCase(trimmed) || "quit".equalsIgnoreCase(trimmed)) {
+					if (!runShellLine(line, debugCompletion)) {
 						break;
 					}
-					run(splitArgs(trimmed), debugCompletion);
 				} catch (UserInterruptException ignored) {
 				} catch (EndOfFileException ignored) {
 					break;
@@ -243,6 +248,50 @@ public class CommandRouter {
 		} finally {
 			shellMode = previousShellMode;
 		}
+	}
+
+	/**
+	 * Runs one line typed into the interactive shell (line based or TUI) and records it in the command history.
+	 *
+	 * @return {@code false} when the line ends the shell
+	 */
+	boolean runShellLine(String line, boolean debugCompletion) {
+		var trimmed = line == null ? "" : line.trim();
+		if (trimmed.isEmpty()) {
+			return true;
+		}
+		try {
+			commandHistory.append(trimmed);
+		} catch (IOException e) {
+			err.println("Warning: could not write command history: " + e.getMessage());
+		}
+		if ("exit".equalsIgnoreCase(trimmed) || "quit".equalsIgnoreCase(trimmed)) {
+			return false;
+		}
+		var previousShellMode = shellMode;
+		shellMode = true;
+		try {
+			run(splitArgs(trimmed), debugCompletion);
+		} finally {
+			shellMode = previousShellMode;
+		}
+		return true;
+	}
+
+	/**
+	 * Runs the full-screen TUI shell on {@code terminal}. Commands typed there go through a router whose output, password prompt and
+	 * task monitor are bound to the TUI windows.
+	 */
+	void runTuiShell(Terminal terminal, boolean debugCompletion, Duration pollInterval) throws IOException, InterruptedException {
+		List<String> history;
+		try {
+			history = commandHistory.commands();
+		} catch (IOException e) {
+			history = List.of();
+		}
+		var tui    = new TuiShell(terminal, sessionStore, new TaskClient(transport), history, pollInterval);
+		var router = new CommandRouter(sessionStore, transport, tui.out(), tui.err(), tui.passwordReader(), commandHistory, tui::taskMonitor);
+		tui.run(line -> router.runShellLine(line, debugCompletion), router::shellPrompt, router.createCompleter(true, debugCompletion));
 	}
 
 	public Completer createCompleter(boolean shellCompleterMode, boolean debugCompletion) {
@@ -358,13 +407,20 @@ public class CommandRouter {
 		return SessionStore.BACKEND_ADMIN.equalsIgnoreCase(backend) ? SessionStore.BACKEND_ADMIN : SessionStore.BACKEND_FILE;
 	}
 
-	private void shell(boolean debugCompletion) {
+	private void shell(boolean debugCompletion) throws IOException, InterruptedException {
+		if (TuiShell.isInteractiveTerminal()) {
+			try (var terminal = TuiShell.createTerminal()) {
+				runTuiShell(terminal, debugCompletion, TASK_POLL_INTERVAL);
+			}
+			return;
+		}
+		// Without a terminal (piped or redirected input) fall back to the line based shell.
 		var reader = LineReaderBuilder.builder()
 									  .completer(createCompleter(true, debugCompletion))
 									  .build();
 		try {
 			commandHistory.load(reader.getHistory());
-		} catch (java.io.IOException e) {
+		} catch (IOException e) {
 			err.println("Warning: could not load command history: " + e.getMessage());
 		}
 		runShell(reader, debugCompletion);

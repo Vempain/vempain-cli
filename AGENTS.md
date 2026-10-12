@@ -16,14 +16,22 @@ and sessions live under `~/.config/vempain-file-cli/`. Do not rename these witho
 | `src/main/java/fi/poltsi/vempain/cli/core/`  | `HttpTransport`, `SessionStore`, `OutputFormatter`, `PasswordReader`, `CliException` |
 | `src/main/java/fi/poltsi/vempain/cli/file/`  | File-backend commands (`FileCommands`)                                               |
 | `src/main/java/fi/poltsi/vempain/cli/admin/` | Admin-backend commands (`AdminCommands`)                                             |
+| `src/main/java/fi/poltsi/vempain/cli/task/`  | Task commands (`TaskCommands`: list, monitor, cancel)                                |
+| `src/main/java/fi/poltsi/vempain/cli/tui/`   | Lanterna TUI of `shell` (`TuiShell`, `TaskBoard`, `TuiTaskMonitor`)                  |
 | `src/test/java/fi/poltsi/vempain/cli/`       | `*UTC` tests driven by an in-process JDK `HttpServer` stub                           |
 | `packaging/rpm/vempain-file-cli.spec`        | RPM spec consumed by the reusable `rpm-cli-package.yaml` workflow                    |
 | `vf-cli`                                     | Shell wrapper installed by the RPM as `/usr/bin/vf-cli`                              |
 
 ## Main components
 
-- `CommandRouter` registers commands, parses arguments with JCommander, drives the interactive JLine shell and tab completion, and delegates to
+- `CommandRouter` registers commands, parses arguments with JCommander, drives the interactive shell and tab completion, and delegates to
   `FileCommands` / `AdminCommands`.
+- `shell` opens the full-screen Lanterna TUI (`tui.TuiShell`) when stdin/stdout are a terminal, otherwise the line based JLine shell. The TUI
+  shows the session window (upper left: login state per backend) and the running tasks window (upper right: `tui.TaskBoard` polls
+  `GET /tasks` of every logged-in backend and keeps the unfinished tasks) above the output window and command line. Commands typed there run
+  through a second `CommandRouter` whose output, password prompt (masked dialog) and task monitor (`tui.TuiTaskMonitor`, which points at the
+  tasks window instead of opening the full-screen `core.TaskMonitor`) are bound to the TUI. Lanterna owns the GUI thread; commands run on one
+  command thread and the task poller on another, and they touch components only through `invokeLater`/`invokeAndWait`.
 - `core.HttpTransport` is the only HTTP client: login, JSON endpoints (`getJson`, `postJson`, `patchJson`) and byte content. Tests instantiate it directly.
 - `core.SessionStore` persists one session per backend (`file`, `admin`) and the active backend in `session.json`; it still reads the legacy
   single-session file format.
@@ -54,7 +62,8 @@ in `~/.gradle/gradle.properties` for GitHub Packages.
   boilerplate grows, add the `io.freefair.lombok` plugin as in the backends instead of hand-writing it.
 - Keep command classes thin: argument parsing in the command classes, reusable HTTP/session/output behaviour in `core`.
 - Test suffix: every test here is a `*UTC` (no Spring context, no containers). Name the test after the class under test (`HttpTransportUTC`,
-  `SessionStoreUTC`); `CliIntegrationUTC` exercises the full command path against the stub server.
+  `SessionStoreUTC`); `CliIntegrationUTC` exercises the full command path against the stub server. `TuiShellUTC` drives the TUI headless on a
+  Lanterna `DefaultVirtualTerminal` (keystrokes in, screen characters out); keep TUI changes covered there.
 - Run `./gradlew clean test` after every code change and report the result.
 
 ## CI

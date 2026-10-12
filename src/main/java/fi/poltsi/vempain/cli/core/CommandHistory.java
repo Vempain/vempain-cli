@@ -9,6 +9,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.List;
 
 public class CommandHistory {
 
@@ -31,11 +32,18 @@ public class CommandHistory {
 	}
 
 	public void load(History history) throws IOException {
+		commands().forEach(history::add);
+	}
+
+	/**
+	 * @return the recorded commands, oldest first
+	 */
+	public List<String> commands() throws IOException {
 		ensureFile();
 		try (var lines = Files.lines(historyFile, StandardCharsets.UTF_8)) {
-			lines.map(this::commandFromEntry)
-				 .filter(command -> !command.isBlank())
-				 .forEach(history::add);
+			return lines.map(this::commandFromEntry)
+						.filter(command -> !command.isBlank())
+						.toList();
 		}
 	}
 
