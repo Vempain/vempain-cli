@@ -25,7 +25,9 @@ Current implementation supports both Vempain File and Vempain Admin backend APIs
     - file types in lowercase
     - backend path completion for scan directories
   - admin/session command namespace hints
-  - shell commands appended to `~/.vempain/history` as `<datetime>\t<command>`, using `YYYY-MM-DDThh:mm:ss`
+      - shell commands appended to `~/.vempain/history` as `<datetime>\t<command>`, using `YYYY-MM-DDThh:mm:ss`; previous commands are available with the
+        Up/Down keys in later shell sessions
+      - long-running commands automatically open the full-screen task monitor when run from the interactive shell; direct commands can use `--monitor`
 
 ## Repository structure
 

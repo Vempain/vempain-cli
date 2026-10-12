@@ -1,5 +1,7 @@
 package fi.poltsi.vempain.cli.core;
 
+import org.jline.reader.History;
+
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -23,11 +25,32 @@ public class CommandHistory {
 	}
 
 	public void append(String command) throws IOException {
+		ensureFile();
+		var entry = FORMATTER.format(LocalDateTime.now()) + "\t" + command + System.lineSeparator();
+		Files.writeString(historyFile, entry, StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+	}
+
+	public void load(History history) throws IOException {
+		ensureFile();
+		try (var lines = Files.lines(historyFile, StandardCharsets.UTF_8)) {
+			lines.map(this::commandFromEntry)
+				 .filter(command -> !command.isBlank())
+				 .forEach(history::add);
+		}
+	}
+
+	private void ensureFile() throws IOException {
 		var parent = historyFile.getParent();
 		if (parent != null) {
 			Files.createDirectories(parent);
 		}
-		var entry = FORMATTER.format(LocalDateTime.now()) + "\t" + command + System.lineSeparator();
-		Files.writeString(historyFile, entry, StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+		if (!Files.exists(historyFile)) {
+			Files.createFile(historyFile);
+		}
+	}
+
+	private String commandFromEntry(String entry) {
+		var separator = entry.indexOf('\t');
+		return separator < 0 ? "" : entry.substring(separator + 1);
 	}
 }

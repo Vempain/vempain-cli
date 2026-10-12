@@ -179,10 +179,19 @@ public class CommandRouter {
 				case "login" -> login(login);
 				case "files-list" -> fileCommands.listFiles(list);
 				case "file-show" -> fileCommands.showFile(show);
-				case "publish-music" -> fileCommands.publishMusic(publishMusic.monitor);
-				case "publish-gps" -> fileCommands.publishGps(publishGps);
-				case "publish-files" -> fileCommands.publishFiles(publishFiles);
-				case "scan" -> fileCommands.scan(scan);
+				case "publish-music" -> fileCommands.publishMusic(publishMusic.monitor || shellMode);
+				case "publish-gps" -> {
+					publishGps.monitor |= shellMode;
+					fileCommands.publishGps(publishGps);
+				}
+				case "publish-files" -> {
+					publishFiles.monitor |= shellMode;
+					fileCommands.publishFiles(publishFiles);
+				}
+				case "scan" -> {
+					scan.monitor |= shellMode;
+					fileCommands.scan(scan);
+				}
 				case "admin" -> admin(adminJc, adminListGroups, adminPublishGroup, adminPublishGroups);
 				case "tasks" -> taskCommands.list(tasks);
 				case "task-monitor" -> taskCommands.monitor(taskMonitor);
@@ -273,8 +282,14 @@ public class CommandRouter {
 		}
 		switch (subCommand) {
 			case "list-groups" -> adminCommands.listGroups(listGroups, requireSession(SessionStore.BACKEND_ADMIN));
-			case "publish-group" -> adminCommands.publishGroup(publishGroup, requireSession(SessionStore.BACKEND_ADMIN));
-			case "publish-groups" -> adminCommands.publishGroups(publishGroups, requireSession(SessionStore.BACKEND_ADMIN));
+			case "publish-group" -> {
+				publishGroup.monitor |= shellMode;
+				adminCommands.publishGroup(publishGroup, requireSession(SessionStore.BACKEND_ADMIN));
+			}
+			case "publish-groups" -> {
+				publishGroups.monitor |= shellMode;
+				adminCommands.publishGroups(publishGroups, requireSession(SessionStore.BACKEND_ADMIN));
+			}
 			default -> adminJc.usage();
 		}
 	}
@@ -317,7 +332,7 @@ public class CommandRouter {
 			return;
 		}
 
-		out.println("Active backend: " + activeBackend);
+		out.println("Active backend: " + activeBackend + " (logged in)");
 		out.println("Stored sessions:");
 		out.println("  file:  " + (file == null ? "not logged in" : file.baseUrl()));
 		out.println("  admin: " + (admin == null ? "not logged in" : admin.baseUrl()));
@@ -347,6 +362,11 @@ public class CommandRouter {
 		var reader = LineReaderBuilder.builder()
 									  .completer(createCompleter(true, debugCompletion))
 									  .build();
+		try {
+			commandHistory.load(reader.getHistory());
+		} catch (java.io.IOException e) {
+			err.println("Warning: could not load command history: " + e.getMessage());
+		}
 		runShell(reader, debugCompletion);
 	}
 

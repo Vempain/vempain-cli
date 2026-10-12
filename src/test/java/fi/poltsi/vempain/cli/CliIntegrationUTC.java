@@ -355,7 +355,7 @@ class CliIntegrationUTC {
 
 			var output = outBytes.toString(StandardCharsets.UTF_8);
 			assertTrue(output.contains("backend 'admin'"));
-			assertTrue(output.contains("Active backend: admin"));
+			assertTrue(output.contains("Active backend: admin (logged in)"));
 			assertTrue(output.contains("short_name"));
 			assertTrue(output.contains("Summer"));
 			assertTrue(output.contains("\"result\": \"OK\""));
