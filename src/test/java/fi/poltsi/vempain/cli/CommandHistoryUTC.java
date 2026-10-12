@@ -1,6 +1,7 @@
 package fi.poltsi.vempain.cli;
 
 import fi.poltsi.vempain.cli.core.CommandHistory;
+import org.jline.reader.impl.history.DefaultHistory;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Files;
@@ -37,5 +38,21 @@ class CommandHistoryUTC {
 		                .endsWith("\tlogin --backend file"));
 		assertTrue(lines.get(1)
 		                .endsWith("\tsession show"));
+	}
+
+	@Test
+	void load_addsCommandsFromPreviousSessionsToJlineHistory() throws Exception {
+		var historyFile = Files.createTempFile("vempain-history", "");
+		Files.writeString(historyFile,
+						  "2026-10-11T23:00:00\tlogin --backend file\n"
+						  + "2026-10-11T23:01:00\tsession show\n");
+		var history      = new CommandHistory(historyFile);
+		var jlineHistory = new DefaultHistory();
+
+		history.load(jlineHistory);
+
+		assertEquals(2, jlineHistory.size());
+		assertEquals("login --backend file", jlineHistory.get(0));
+		assertEquals("session show", jlineHistory.get(1));
 	}
 }
