@@ -55,4 +55,12 @@ class CommandHistoryUTC {
 		assertEquals("login --backend file", jlineHistory.get(0));
 		assertEquals("session show", jlineHistory.get(1));
 	}
+
+	@Test
+	void commands_returnsRecordedCommandsOldestFirst() throws Exception {
+		var historyFile = Files.createTempFile("vempain-history", "");
+		Files.writeString(historyFile, "2026-10-12T10:00:00\tlogin --backend file\nnot-an-entry\n2026-10-12T10:01:00\tsession show\n");
+
+		assertEquals(java.util.List.of("login --backend file", "session show"), new CommandHistory(historyFile).commands());
+	}
 }

@@ -21,13 +21,17 @@ Current implementation supports both Vempain File and Vempain Admin backend APIs
   - `admin list-groups`
   - `admin publish-group --id <id>`
   - `admin publish-groups --ids <id1,id2,...>`
-- Interactive shell with tab completion:
-    - file types in lowercase
-    - backend path completion for scan directories
-  - admin/session command namespace hints
-      - shell commands appended to `~/.vempain/history` as `<datetime>\t<command>`, using `YYYY-MM-DDThh:mm:ss`; previous commands are available with the
-        Up/Down keys in later shell sessions
-      - long-running commands automatically open the full-screen task monitor when run from the interactive shell; direct commands can use `--monitor`
+- Full-screen interactive shell (`vf-cli shell`, Lanterna TUI):
+    - session window in the upper left corner: login state and base URL of the file and admin backends, and the active backend
+    - running tasks window in the upper right corner: the queued/running/cancelling background tasks of every logged-in backend,
+      refreshed every 2 seconds and right after each command (so it fills as soon as you log in)
+    - output window and command line below them; the password of `login` is asked in a masked dialog (Esc cancels)
+    - tab completion: command names and options, file types in lowercase, backend path completion for scan directories
+    - shell commands appended to `~/.vempain/history` as `<datetime>\t<command>`, using `YYYY-MM-DDThh:mm:ss`; previous commands are available with the
+      Up/Down keys in later shell sessions; PgUp/PgDn scroll the output (the view stays put while scrolled back and follows new output again
+      once PgDn reaches the end); `exit`, `quit` or Ctrl+D on an empty line leave the shell
+    - long-running commands are followed in the running tasks window instead of the separate full-screen task monitor; direct commands can use `--monitor`
+    - without a terminal (piped or redirected input) `shell` falls back to a line based prompt
 
 ## Repository structure
 
