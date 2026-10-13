@@ -237,6 +237,132 @@ public class FileCommands {
 		monitor(response, session, command.monitor);
 	}
 
+	/**
+	 * Renames a tag on every file carrying it ({@code POST /tags/all/rename}, a background task with one step per file). The current
+	 * translations of the tag are looked up first and kept unless a {@code --name-xx} option replaces them, because the backend
+	 * clears every translation that the request leaves out.
+	 */
+	public void renameTag(TagRenameCommand command) throws Exception {
+		var session = requireSession();
+		requireText(command.tag, "--tag");
+		requireText(command.newName, "--to");
+
+		var current = findTag(session, command.tag);
+		var request = new JSONObject()
+				.put("tag_name", command.tag)
+				.put("replacement_tag_name", command.newName)
+				.put("file_ids", new JSONArray());
+		putTranslation(request, current, "tag_name_de", command.nameDe);
+		putTranslation(request, current, "tag_name_en", command.nameEn);
+		putTranslation(request, current, "tag_name_es", command.nameEs);
+		putTranslation(request, current, "tag_name_fi", command.nameFi);
+		putTranslation(request, current, "tag_name_sv", command.nameSv);
+
+		var response = transport.postJson(session, "/tags/all/rename", request);
+		out.printf("Submitted rename of tag '%s' to '%s'.%n", command.tag, command.newName);
+		out.println(response.toString(2));
+		monitor(response, session, command.monitor);
+	}
+
+	/**
+	 * Replaces a tag with another existing tag on every file carrying it ({@code POST /tags/all/replace}, a background task with one
+	 * step per file); the replaced tag is deleted once no file carries it any more.
+	 */
+	public void replaceTag(TagReplaceCommand command) throws Exception {
+		var session = requireSession();
+		requireText(command.tag, "--tag");
+		requireText(command.replacement, "--with");
+		if (command.tag.equals(command.replacement)) {
+			throw new IllegalArgumentException("--with must name a different tag than --tag");
+		}
+
+		var request = new JSONObject()
+				.put("tag_name", command.tag)
+				.put("replacement_tag_name", command.replacement)
+				.put("file_ids", new JSONArray());
+		var response = transport.postJson(session, "/tags/all/replace", request);
+		out.printf("Submitted replacement of tag '%s' with '%s'.%n", command.tag, command.replacement);
+		out.println(response.toString(2));
+		monitor(response, session, command.monitor);
+	}
+
+	/**
+	 * Rewrites one metadata value in every file carrying the given group, key and current value ({@code POST /metadata/value}, a
+	 * background task with one step per file). {@code --remove} (or an empty {@code --new-value}) removes the entry from the files.
+	 */
+	public void updateMetadata(MetadataUpdateCommand command) throws Exception {
+		var session = requireSession();
+		requireText(command.group, "--group");
+		requireText(command.key, "--key");
+		if (command.value == null) {
+			throw new IllegalArgumentException("--value is required");
+		}
+		if (command.newValue == null && !command.remove) {
+			throw new IllegalArgumentException("Provide --new-value <value> or --remove");
+		}
+		if (command.newValue != null && !command.newValue.isEmpty() && command.remove) {
+			throw new IllegalArgumentException("--new-value and --remove exclude each other");
+		}
+
+		var newValue = command.remove || command.newValue == null ? "" : command.newValue;
+		var request = new JSONObject()
+				.put("metadata_group", command.group)
+				.put("metadata_key", command.key)
+				.put("metadata_value", command.value)
+				.put("new_value", newValue);
+		var response = transport.postJson(session, "/metadata/value", request);
+		if (newValue.isEmpty()) {
+			out.printf("Submitted removal of %s:%s = '%s' from the files.%n", command.group, command.key, command.value);
+		} else {
+			out.printf("Submitted rewrite of %s:%s from '%s' to '%s'.%n", command.group, command.key, command.value, newValue);
+		}
+		out.println(response.toString(2));
+		monitor(response, session, command.monitor);
+	}
+
+	/**
+	 * Looks a tag up by its exact default name through the paged search; {@code null} when the backend does not list it (the rename
+	 * request is still sent, the backend answers with its own error then).
+	 */
+	private JSONObject findTag(SessionStore.Session session, String tagName) {
+		try {
+			var response = transport.postJson(session, "/tags/paged", new JSONObject()
+					.put("page", 0)
+					.put("size", 200)
+					.put("search", tagName)
+					.put("case_sensitive", true));
+			var content = response.optJSONArray("content");
+			if (content == null) {
+				return null;
+			}
+			for (int i = 0; i < content.length(); i++) {
+				var tag = content.getJSONObject(i);
+				if (tagName.equals(tag.optString("tag_name", null))) {
+					return tag;
+				}
+			}
+		} catch (Exception e) {
+			out.println("Could not look up the current translations of tag '" + tagName + "': " + e.getMessage());
+		}
+		return null;
+	}
+
+	private static void putTranslation(JSONObject request, JSONObject current, String field, String override) {
+		if (override != null) {
+			request.put(field, override);
+			return;
+		}
+		if (current != null && !current.isNull(field)) {
+			request.put(field, current.getString(field));
+		}
+	}
+
+	private static void requireText(String value, String option) {
+		if (value == null || value.isBlank()) {
+			throw new IllegalArgumentException(option + " is required and must not be blank");
+		}
+	}
+
 	public void completeScanPath(List<String> words,
 								 int wordIndex,
 								 List<Candidate> candidates,
@@ -453,7 +579,53 @@ public class FileCommands {
 	@Parameters(commandDescription = "Publish files listed in a UTF-8 file, one file ID per line")
 	public static class PublishFilesCommand {
 		@Parameter(names = {"--ids-file"}, required = true, description = "File containing one file ID per line")
-		public String idsFile;
+		public String  idsFile;
+		@Parameter(names = "--monitor", description = "Open the full-screen task monitor after submission")
+		public boolean monitor;
+	}
+
+	@Parameters(commandDescription = "Rename a tag on every file carrying it (rewrites the file metadata as a background task)")
+	public static class TagRenameCommand {
+		@Parameter(names = {"--tag"}, required = true, description = "Current tag name")
+		public String  tag;
+		@Parameter(names = {"--to"}, required = true, description = "New tag name (must not exist yet)")
+		public String  newName;
+		@Parameter(names = {"--name-de"}, description = "German name; the current one is kept when omitted")
+		public String  nameDe;
+		@Parameter(names = {"--name-en"}, description = "English name; the current one is kept when omitted")
+		public String  nameEn;
+		@Parameter(names = {"--name-es"}, description = "Spanish name; the current one is kept when omitted")
+		public String  nameEs;
+		@Parameter(names = {"--name-fi"}, description = "Finnish name; the current one is kept when omitted")
+		public String  nameFi;
+		@Parameter(names = {"--name-sv"}, description = "Swedish name; the current one is kept when omitted")
+		public String  nameSv;
+		@Parameter(names = "--monitor", description = "Open the full-screen task monitor after submission")
+		public boolean monitor;
+	}
+
+	@Parameters(commandDescription = "Replace a tag with another existing tag on every file carrying it (rewrites the file metadata as a background task)")
+	public static class TagReplaceCommand {
+		@Parameter(names = {"--tag"}, required = true, description = "Tag to replace")
+		public String  tag;
+		@Parameter(names = {"--with"}, required = true, description = "Existing tag that replaces it")
+		public String  replacement;
+		@Parameter(names = "--monitor", description = "Open the full-screen task monitor after submission")
+		public boolean monitor;
+	}
+
+	@Parameters(commandDescription = "Rewrite one metadata value in every file carrying it (rewrites the file metadata as a background task)")
+	public static class MetadataUpdateCommand {
+		@Parameter(names = {"--group"}, required = true, description = "ExifTool group of the metadata entry, e.g. XMP-dc")
+		public String  group;
+		@Parameter(names = {"--key"}, required = true, description = "Metadata key inside the group, e.g. Creator")
+		public String  key;
+		@Parameter(names = {"--value"}, required = true, description = "Current value that selects the files")
+		public String  value;
+		@Parameter(names = {"--new-value"}, description = "New value written into the files")
+		public String  newValue;
+		@Parameter(names = {"--remove"}, description = "Remove the entry from the files instead of writing a new value")
+		public boolean remove;
 		@Parameter(names = "--monitor", description = "Open the full-screen task monitor after submission")
 		public boolean monitor;
 	}

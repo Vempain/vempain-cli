@@ -15,6 +15,7 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -131,6 +132,76 @@ class HttpTransportUTC {
 			}
 		});
 	}
+
+	@Test
+	void login_throwsOnNon2xx() {
+		register("/api/login", 401, "application/json", "{\"error\":\"bad credentials\"}");
+
+		var client    = new HttpTransport();
+		var password  = "pass".toCharArray();
+		var exception = assertThrows(IOException.class, () -> client.login(baseUrl, "user", password));
+
+		assertTrue(exception.getMessage()
+							.contains("Login failed: HTTP 401"), exception.getMessage());
+		assertTrue(exception.getMessage()
+							.contains("bad credentials"));
+		assertEquals("\0\0\0\0", new String(password), "the password is zeroed even when the login fails");
+	}
+
+	@Test
+	void getJsonFlexible_returnsEmptyObjectForEmptyBodyAndObjectsAsTheyAre() throws Exception {
+		register("/api/empty", 200, "application/json", "");
+		register("/api/object", 200, "application/json", "{\"task_id\":\"t-1\"}");
+
+		var client = new HttpTransport();
+		assertEquals(0, client.getJsonFlexible(new SessionStore.Session(baseUrl, "abc"), "/empty")
+							  .length());
+		assertEquals("t-1", client.getJsonFlexible(new SessionStore.Session(baseUrl, "abc"), "/object")
+								  .getString("task_id"));
+		assertFalse(client.getJsonFlexible(new SessionStore.Session(baseUrl, "abc"), "/object")
+						  .has("items"));
+	}
+
+	@Test
+	void requestFailures_nameMethodUrlAndStatus() {
+		register("/api/failing", 500, "application/json", "{\"error\":\"down\"}");
+		var client  = new HttpTransport();
+		var session = new SessionStore.Session(baseUrl, "abc");
+
+		assertEquals("POST " + baseUrl + "/failing failed: HTTP 500 body: {\"error\":\"down\"}",
+					 assertThrows(IOException.class, () -> client.postJson(session, "/failing", new JSONObject())).getMessage());
+		assertEquals("PATCH " + baseUrl + "/failing failed: HTTP 500 body: {\"error\":\"down\"}",
+					 assertThrows(IOException.class, () -> client.patchJson(session, "/failing", new JSONObject())).getMessage());
+		assertEquals("DELETE " + baseUrl + "/failing failed: HTTP 500 body: {\"error\":\"down\"}",
+					 assertThrows(IOException.class, () -> client.delete(session, "/failing")).getMessage());
+		assertEquals("GET " + baseUrl + "/failing failed: HTTP 500 body: {\"error\":\"down\"}",
+					 assertThrows(IOException.class, () -> client.getBytes(session, "/failing")).getMessage());
+		assertEquals("GET " + baseUrl + "/failing failed: HTTP 500 body: {\"error\":\"down\"}",
+					 assertThrows(IOException.class, () -> client.getJsonFlexible(session, "/failing")).getMessage());
+	}
+
+	@Test
+	void patchJson_emptyBodyReturnsEmptyJsonObject() throws Exception {
+		register("/api/empty", 200, "application/json", "");
+
+		var response = new HttpTransport().patchJson(new SessionStore.Session(baseUrl, "abc"), "/empty", new JSONObject());
+
+		assertEquals(0, response.length());
+	}
+
+	@Test
+	void delete_acceptsAnyTwoHundredStatus() throws Exception {
+		register("/api/tasks/t-1", 204, "application/json", "");
+
+		new HttpTransport().delete(new SessionStore.Session(baseUrl, "abc"), "/tasks/t-1");
+	}
+
+	@Test
+	void request_prependsTheMissingSlashToThePath() throws Exception {
+		register("/api/version", 200, "application/json", "{\"version\":\"1.0\"}");
+
+		var response = new HttpTransport().getJson(baseUrl, "version", null);
+
+		assertEquals("1.0", response.getString("version"));
+	}
 }
-
-

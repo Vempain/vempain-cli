@@ -3,35 +3,52 @@ package fi.poltsi.vempain.cli;
 import com.googlecode.lanterna.TerminalSize;
 import com.googlecode.lanterna.input.KeyStroke;
 import com.googlecode.lanterna.input.KeyType;
+import com.googlecode.lanterna.terminal.Terminal;
 import com.googlecode.lanterna.terminal.virtual.DefaultVirtualTerminal;
 import com.sun.net.httpserver.HttpServer;
+import fi.poltsi.vempain.cli.core.CommandHistory;
 import fi.poltsi.vempain.cli.core.HttpTransport;
 import fi.poltsi.vempain.cli.core.PasswordReader;
 import fi.poltsi.vempain.cli.core.SessionStore;
+import fi.poltsi.vempain.cli.core.TaskClient;
+import fi.poltsi.vempain.cli.tui.TuiShell;
+import org.jline.reader.Candidate;
+import org.jline.reader.Completer;
 import org.json.JSONObject;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.PrintStream;
+import java.lang.reflect.Proxy;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 class TuiShellUTC {
 
@@ -76,6 +93,21 @@ class TuiShellUTC {
 				return;
 			}
 			send(exchange, "{\"task_id\":\"task-1\",\"title\":\"Scanning originals\",\"status\":\"RUNNING\",\"percent\":40}");
+		});
+		server.createContext("/many/api/tasks", exchange -> {
+			var tasks = new org.json.JSONArray();
+			for (int id = 1; id <= 12; id++) {
+				tasks.put(new JSONObject().put("task_id", "many-" + id)
+										  .put("title", id == 1 ? "A very long title ".repeat(8) : "Task " + id)
+										  .put("status", "RUNNING")
+										  .put("percent", id));
+			}
+			send(exchange, tasks.toString());
+		});
+		server.createContext("/api/tags/all/replace", exchange -> {
+			exchange.getRequestBody()
+					.readAllBytes();
+			send(exchange, "{\"task_id\":\"task-1\",\"type\":\"TAG_REPLACE_ACROSS_ALL\",\"status\":\"QUEUED\",\"total_steps\":3}");
 		});
 		server.createContext("/api/files/music/paged", exchange -> {
 			var content = new org.json.JSONArray();
@@ -155,6 +187,28 @@ class TuiShellUTC {
 		press(KeyType.Enter);
 		shellThread.join(TIMEOUT.toMillis());
 		assertFalse(shellThread.isAlive(), "exit closes the TUI");
+		assertNull(shellFailure.get());
+	}
+
+	@Test
+	void shell_followsTagReplaceInTheRunningTasksWindow() throws Exception {
+		var sessionStore = new SessionStore();
+		sessionStore.save(baseUrl(), "file-jwt");
+		startShell(sessionStore, prompt -> fail("no password is asked"));
+		awaitScreen(screen -> shows(screen, "vempain-file> "));
+
+		type("tag-replace --tag old --with new");
+		press(KeyType.Enter);
+
+		var screen = awaitScreen(current -> shows(current, "Submitted replacement of tag 'old' with 'new'.")
+											&& shows(current, "Task task-1 is followed in the running tasks window.")
+											&& shows(current, "[file] RUNNING"));
+		assertFalse(screen.stream()
+						  .anyMatch(line -> line.contains("Vempain task monitor")), "the shell never opens the full-screen monitor");
+
+		type("exit");
+		press(KeyType.Enter);
+		shellThread.join(TIMEOUT.toMillis());
 		assertNull(shellFailure.get());
 	}
 
@@ -255,8 +309,12 @@ class TuiShellUTC {
 	}
 
 	private void startShell(SessionStore sessionStore, PasswordReader passwordReader) {
+		startShell(sessionStore, passwordReader, new CommandHistory());
+	}
+
+	private void startShell(SessionStore sessionStore, PasswordReader passwordReader, CommandHistory commandHistory) {
 		var silent = new PrintStream(OutputStream.nullOutputStream());
-		var router = new CommandRouter(sessionStore, new HttpTransport(), silent, silent, passwordReader);
+		var router = new CommandRouter(sessionStore, new HttpTransport(), silent, silent, passwordReader, commandHistory);
 		shellThread = Thread.ofPlatform()
 							.name("tui-shell-test")
 							.start(() -> {
@@ -361,5 +419,345 @@ class TuiShellUTC {
 		exchange.getResponseBody()
 				.write(bytes);
 		exchange.close();
+	}
+
+	@Test
+	void shell_startsWithoutHistoryWhenTheHistoryFileCannotBeRead() throws Exception {
+		var blocker = tempHome.resolve("blocker");
+		Files.writeString(blocker, "not a directory");
+		startShell(new SessionStore(), prompt -> fail("no password expected"), new CommandHistory(blocker.resolve("history")));
+		awaitScreen(screen -> shows(screen, "vempain-unauthicated> "));
+
+		press(KeyType.ArrowUp);
+		type("exit");
+		press(KeyType.Enter);
+		shellThread.join(TIMEOUT.toMillis());
+
+		assertFalse(shellThread.isAlive(), "an unreadable history does not stop the shell");
+		assertNull(shellFailure.get());
+	}
+
+	@Test
+	void tui_reportsUiErrorsKeepsRunningAndIgnoresOutputAfterItHasClosed() throws Exception {
+		var promptCalls = new AtomicInteger();
+		Supplier<String> prompt = () -> {
+			if (promptCalls.incrementAndGet() == 2) {
+				throw new IllegalStateException("prompt exploded");
+			}
+			return "p> ";
+		};
+		var tui = tui(new SessionStore());
+		startTui(tui, line -> !"exit".equals(line), prompt, null);
+		awaitScreen(screen -> shows(screen, "p> "));
+
+		type("first");
+		press(KeyType.Enter);
+		awaitScreen(screen -> shows(screen, "UI error: prompt exploded"));
+
+		type("exit");
+		press(KeyType.Enter);
+		shellThread.join(TIMEOUT.toMillis());
+		assertFalse(shellThread.isAlive(), "the UI error does not stop the shell");
+		assertNull(shellFailure.get());
+
+		var session = new SessionStore.Session(SessionStore.BACKEND_FILE, baseUrl(), "file-jwt");
+		var progress = tui.taskMonitor(new TaskClient(new HttpTransport()))
+						  .monitor(session, "task-1", Duration.ofSeconds(1));
+		assertEquals("RUNNING", progress.status(), "the task monitor still answers after the TUI has closed");
+	}
+
+	@Test
+	void tui_refusesInputWhileACommandRunsAndIgnoresEmptyLines() throws Exception {
+		var release = new CountDownLatch(1);
+		var lines   = Collections.synchronizedList(new ArrayList<String>());
+		Predicate<String> handler = line -> {
+			lines.add(line);
+			if ("wait".equals(line)) {
+				try {
+					release.await();
+				} catch (InterruptedException e) {
+					Thread.currentThread()
+						  .interrupt();
+				}
+			}
+			return !"exit".equals(line);
+		};
+		startTui(tui(new SessionStore()), handler, () -> "p> ", null);
+		awaitScreen(screen -> shows(screen, "p> "));
+
+		type("wait");
+		press(KeyType.Enter);
+		awaitScreen(screen -> shows(screen, "running... "));
+		type("again");
+		press(KeyType.Enter);
+		awaitScreen(screen -> shows(screen, "A command is still running, wait for it to finish."));
+		release.countDown();
+		awaitScreen(screen -> !shows(screen, "running... "));
+
+		press(KeyType.Enter);
+		awaitScreen(screen -> shows(screen, "p> again"));
+		press(KeyType.Enter);
+		type("done");
+		press(KeyType.Enter);
+		var screen = awaitScreen(current -> shows(current, "p> done"));
+		assertTrue(screen.stream()
+						 .anyMatch(line -> line.matches(".*│p> +│.*")), "an empty line is echoed but not run:\n" + String.join("\n", screen));
+
+		type("exit");
+		press(KeyType.Enter);
+		shellThread.join(TIMEOUT.toMillis());
+		assertEquals(List.of("wait", "again", "done", "exit"), lines);
+		assertNull(shellFailure.get());
+	}
+
+	@Test
+	void tui_showsCommandFailuresAndPartialOutputLines() throws Exception {
+		var tui = tui(new SessionStore());
+		Predicate<String> handler = line -> {
+			if ("boom".equals(line)) {
+				throw new IllegalStateException("kaboom");
+			}
+			if ("partial".equals(line)) {
+				tui.out()
+				   .print("no newline at the end");
+			}
+			return !"exit".equals(line);
+		};
+		startTui(tui, handler, () -> "p> ", null);
+		awaitScreen(screen -> shows(screen, "p> "));
+
+		type("boom");
+		press(KeyType.Enter);
+		awaitScreen(screen -> shows(screen, "Error: kaboom"));
+		type("partial");
+		press(KeyType.Enter);
+		awaitScreen(screen -> shows(screen, "no newline at the end"));
+
+		type("exit");
+		press(KeyType.Enter);
+		shellThread.join(TIMEOUT.toMillis());
+		assertNull(shellFailure.get());
+	}
+
+	@Test
+	void tui_tabCompletionFillsCommonPrefixesSingleMatchesAndReportsFailures() throws Exception {
+		var lines = Collections.synchronizedList(new ArrayList<String>());
+		Completer completer = (reader, line, candidates) -> {
+			if ("boom".equals(line.word())) {
+				throw new IllegalStateException("nope");
+			}
+			for (var command : List.of("publish-music", "publish-gps", "publish-files", "exit")) {
+				if (command.startsWith(line.word())) {
+					candidates.add(new Candidate(command));
+				}
+			}
+		};
+		startTui(tui(new SessionStore()), line -> {
+			lines.add(line);
+			return !"exit".equals(line);
+		}, () -> "p> ", completer);
+		awaitScreen(screen -> shows(screen, "p> "));
+
+		type("pu");
+		press(KeyType.Tab);
+		awaitScreen(screen -> shows(screen, "publish-music  publish-gps  publish-files"));
+		type("m");
+		press(KeyType.Tab);
+		press(KeyType.Enter);
+		awaitScreen(screen -> shows(screen, "p> publish-music"));
+
+		type("zzz");
+		press(KeyType.Tab);
+		press(KeyType.Enter);
+		awaitScreen(screen -> shows(screen, "p> zzz"));
+
+		type("boom");
+		press(KeyType.Tab);
+		awaitScreen(screen -> shows(screen, "Completion failed: nope"));
+		press(KeyType.Backspace, 4);
+
+		type("exit");
+		press(KeyType.Enter);
+		shellThread.join(TIMEOUT.toMillis());
+		assertEquals(List.of("publish-music", "zzz", "exit"), lines, "the common prefix and the single match were filled in");
+		assertNull(shellFailure.get());
+	}
+
+	@Test
+	void tui_withoutCompleterTabDoesNothingAndCtrlDOnAnEmptyLineExits() throws Exception {
+		var lines = Collections.synchronizedList(new ArrayList<String>());
+		startTui(tui(new SessionStore()), line -> {
+			lines.add(line);
+			return !"exit".equals(line);
+		}, () -> "p> ", null);
+		awaitScreen(screen -> shows(screen, "p> "));
+
+		press(KeyType.Tab);
+		terminal.addInput(new KeyStroke('d', true, false));
+		shellThread.join(TIMEOUT.toMillis());
+
+		assertFalse(shellThread.isAlive(), "Ctrl+D on an empty line leaves the shell");
+		assertEquals(List.of("exit"), lines);
+		assertNull(shellFailure.get());
+	}
+
+	@Test
+	void tui_reportsAnInterruptedPasswordPrompt() throws Exception {
+		var tui = tui(new SessionStore());
+		Predicate<String> handler = line -> {
+			if ("login".equals(line)) {
+				Thread.currentThread()
+					  .interrupt();
+				tui.passwordReader()
+				   .readPassword("Password: ");
+			}
+			return !"exit".equals(line);
+		};
+		startTui(tui, handler, () -> "p> ", null);
+		awaitScreen(screen -> shows(screen, "p> "));
+
+		type("login");
+		press(KeyType.Enter);
+		awaitScreen(screen -> shows(screen, "Error: Password prompt interrupted"));
+		press(KeyType.Escape);
+		awaitScreen(screen -> !shows(screen, "Enter: log in   Esc: cancel"));
+
+		type("exit");
+		press(KeyType.Enter);
+		shellThread.join(TIMEOUT.toMillis());
+		assertNull(shellFailure.get());
+	}
+
+	@Test
+	void tui_showsTheActiveAdminBackendOverflowingTasksAndRefreshFailures() throws Exception {
+		var failing = new AtomicBoolean();
+		var sessionStore = new SessionStore() {
+			@Override
+			public Session load(String backend) {
+				if (failing.get()) {
+					throw new IllegalStateException("store exploded");
+				}
+				return super.load(backend);
+			}
+		};
+		sessionStore.save(SessionStore.BACKEND_ADMIN, "http://localhost:" + server.getAddress()
+																				  .getPort() + "/many/api", "admin-jwt");
+		startTui(tui(sessionStore), line -> !"exit".equals(line), () -> "p> ", null);
+
+		var screen = awaitScreen(current -> shows(current, "[admin] RUNNING") && "admin".equals(stateOf(current, "Active backend")));
+		assertEquals("not logged in", stateOf(screen, "File backend"));
+		assertEquals("logged in", stateOf(screen, "Admin backend"));
+		assertTrue(screen.stream()
+						 .anyMatch(line -> line.contains("A very long title") && line.contains("...")), "long task lines are truncated");
+		assertTrue(screen.stream()
+						 .anyMatch(line -> line.matches(".*\\.\\.\\. and \\d+ more.*")), "the tasks window reports the lines it cannot show:\n" + String.join("\n", screen));
+
+		failing.set(true);
+		awaitScreen(current -> shows(current, "Task refresh failed: store exploded"));
+		failing.set(false);
+
+		type("exit");
+		press(KeyType.Enter);
+		shellThread.join(TIMEOUT.toMillis());
+		assertNull(shellFailure.get());
+	}
+
+	@Test
+	void tui_keepsOnlyTheLastTwoThousandOutputLines() throws Exception {
+		var tui = tui(new SessionStore());
+		Predicate<String> handler = line -> {
+			if ("big".equals(line)) {
+				for (int i = 1; i <= 2100; i++) {
+					tui.out()
+					   .println("line-" + i);
+				}
+			}
+			return !"exit".equals(line);
+		};
+		startTui(tui, handler, () -> "p> ", null);
+		awaitScreen(screen -> shows(screen, "p> "));
+
+		type("big");
+		press(KeyType.Enter);
+		awaitScreen(screen -> shows(screen, "line-2100"));
+		press(KeyType.PageUp, 200);
+		var top = awaitScreen(screen -> shows(screen, "line-101"));
+		assertFalse(shows(top, "line-100"), "the oldest lines were dropped");
+		assertFalse(shows(top, "p> big"), "the echoed command was the first line to go");
+
+		type("exit");
+		press(KeyType.Enter);
+		shellThread.join(TIMEOUT.toMillis());
+		assertNull(shellFailure.get());
+	}
+
+	@Test
+	void tui_ignoresAnIoErrorOfTheFirstDraw() throws Exception {
+		var failed = new AtomicBoolean();
+		var flaky = (Terminal) Proxy.newProxyInstance(Terminal.class.getClassLoader(), new Class[]{Terminal.class}, (proxy, method, args) -> {
+			if ("flush".equals(method.getName()) && "LanternaGUI".equals(Thread.currentThread()
+																			   .getName()) && failed.compareAndSet(false, true)) {
+				throw new IOException("terminal went away");
+			}
+			try {
+				return method.invoke(terminal, args);
+			} catch (java.lang.reflect.InvocationTargetException e) {
+				throw e.getCause();
+			}
+		});
+		var tui = new TuiShell(flaky, new SessionStore(), new TaskClient(new HttpTransport()), List.of(), Duration.ofMillis(200));
+		startTui(tui, line -> !"exit".equals(line), () -> "p> ", null);
+
+		awaitScreen(screen -> shows(screen, "p> "));
+		assertTrue(failed.get(), "the first draw of the GUI thread failed");
+
+		type("exit");
+		press(KeyType.Enter);
+		shellThread.join(TIMEOUT.toMillis());
+		assertFalse(shellThread.isAlive(), "the shell survives the failed first draw");
+		assertNull(shellFailure.get());
+	}
+
+	/**
+	 * The text terminal needs the controlling tty ({@code stty} is run on {@code /dev/tty}); without one the shell cannot open its TUI.
+	 */
+	@Test
+	void terminalHelpers_withoutAControllingTerminal_reportNoInteractiveTerminalAndFailToOpenOne() throws Exception {
+		assumeTrue(System.console() == null, "needs a JVM without console");
+		try (var tty = new java.io.FileInputStream("/dev/tty")) {
+			assumeTrue(tty == null, "needs a JVM without a controlling terminal");
+		} catch (IOException expected) {
+			// no controlling terminal: the case under test
+		}
+		assertFalse(TuiShell.isInteractiveTerminal());
+
+		var originalIn  = System.in;
+		var originalOut = System.out;
+		System.setIn(new ByteArrayInputStream(new byte[0]));
+		System.setOut(new PrintStream(new ByteArrayOutputStream(), true, StandardCharsets.UTF_8));
+		try {
+			var exception = assertThrows(IOException.class, TuiShell::createTerminal);
+			assertTrue(exception.getMessage()
+								.contains("/dev/tty"), exception.getMessage());
+		} finally {
+			System.setIn(originalIn);
+			System.setOut(originalOut);
+		}
+	}
+
+	private TuiShell tui(SessionStore sessionStore) throws IOException {
+		return new TuiShell(terminal, sessionStore, new TaskClient(new HttpTransport()), List.of(), Duration.ofMillis(200));
+	}
+
+	private void startTui(TuiShell tui, Predicate<String> lineHandler, Supplier<String> prompt, Completer completer) {
+		shellThread = Thread.ofPlatform()
+							.name("tui-test")
+							.start(() -> {
+								try {
+									tui.run(lineHandler, prompt, completer);
+								} catch (Throwable e) {
+									shellFailure.set(e);
+								}
+							});
 	}
 }

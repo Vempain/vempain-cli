@@ -80,11 +80,11 @@ jacocoTestCoverageVerification {
     violationRules {
         rule {
             element = 'PACKAGE'
-            includes = ['fi.poltsi.vempain.cli']
+			includes = ['fi.poltsi.vempain.cli', 'fi.poltsi.vempain.cli.*']
             limit {
                 counter = 'LINE'
                 value = 'COVEREDRATIO'
-                minimum = 0.90
+				minimum = 0.95
             }
         }
     }

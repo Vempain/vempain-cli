@@ -40,7 +40,8 @@ import java.util.stream.Collectors;
 public class CommandRouter {
 
 	private static final List<String> BASE_COMMANDS = List.of(
-			"login", "files-list", "file-show", "publish-music", "publish-gps", "publish-files", "scan", "admin", "tasks", "task-monitor", "task-cancel", "session", "logout", "shell", "exit", "quit"
+			"login", "files-list", "file-show", "publish-music", "publish-gps", "publish-files", "scan", "tag-rename", "tag-replace", "metadata-update", "admin",
+			"tasks", "task-monitor", "task-cancel", "session", "logout", "shell", "exit", "quit"
 	);
 
 	private static final Map<String, List<String>> COMMAND_OPTIONS = commandOptions();
@@ -96,6 +97,9 @@ public class CommandRouter {
 		options.put("publish-gps", List.of("--file-group-id", "--time-series-name", "--monitor"));
 		options.put("publish-files", List.of("--ids-file", "--monitor"));
 		options.put("scan", List.of("-o", "--original-directory", "-e", "--export-directory", "--monitor"));
+		options.put("tag-rename", List.of("--tag", "--to", "--name-de", "--name-en", "--name-es", "--name-fi", "--name-sv", "--monitor"));
+		options.put("tag-replace", List.of("--tag", "--with", "--monitor"));
+		options.put("metadata-update", List.of("--group", "--key", "--value", "--new-value", "--remove", "--monitor"));
 		options.put("admin", List.of());
 		options.put("tasks", List.of("--backend", "-b", "--raw"));
 		options.put("task-monitor", List.of("--task-id", "--backend", "-b", "--interval-ms"));
@@ -116,6 +120,9 @@ public class CommandRouter {
 		var publishGps = new FileCommands.PublishGpsCommand();
 		var publishFiles = new FileCommands.PublishFilesCommand();
 		var scan       = new FileCommands.ScanCommand();
+		var tagRename      = new FileCommands.TagRenameCommand();
+		var tagReplace     = new FileCommands.TagReplaceCommand();
+		var metadataUpdate = new FileCommands.MetadataUpdateCommand();
 
 		var admin              = new AdminCommands.AdminCommand();
 		var adminListGroups    = new AdminCommands.AdminListGroupsCommand();
@@ -145,6 +152,9 @@ public class CommandRouter {
 						   .addCommand("publish-gps", publishGps)
 						   .addCommand("publish-files", publishFiles)
 						   .addCommand("scan", scan)
+						   .addCommand("tag-rename", tagRename)
+						   .addCommand("tag-replace", tagReplace)
+						   .addCommand("metadata-update", metadataUpdate)
 						   .addCommand("admin", admin)
 						   .addCommand("tasks", tasks)
 						   .addCommand("task-monitor", taskMonitor)
@@ -209,6 +219,18 @@ public class CommandRouter {
 				case "scan" -> {
 					scan.monitor |= shellMode;
 					fileCommands.scan(scan);
+				}
+				case "tag-rename" -> {
+					tagRename.monitor |= shellMode;
+					fileCommands.renameTag(tagRename);
+				}
+				case "tag-replace" -> {
+					tagReplace.monitor |= shellMode;
+					fileCommands.replaceTag(tagReplace);
+				}
+				case "metadata-update" -> {
+					metadataUpdate.monitor |= shellMode;
+					fileCommands.updateMetadata(metadataUpdate);
 				}
 				case "admin" -> admin(adminJc, adminListGroups, adminPublishGroup, adminPublishGroups);
 				case "tasks" -> taskCommands.list(tasks);

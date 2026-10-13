@@ -30,7 +30,14 @@ public class VempainFileCliApplication {
 	}
 
 	void run(String[] args) {
-		if (isEnvDebugCompletionEnabled()) {
+		run(args, System.getenv("VEMPAIN_CLI_DEBUG_COMPLETION"));
+	}
+
+	/**
+	 * @param debugCompletionEnv value of {@code VEMPAIN_CLI_DEBUG_COMPLETION}; {@code 1}, {@code true} or {@code yes} enable completion debugging
+	 */
+	void run(String[] args, String debugCompletionEnv) {
+		if (isDebugCompletionEnabled(debugCompletionEnv)) {
 			debugCompletion = true;
 		}
 		commandRouter.run(args, debugCompletion);
@@ -48,8 +55,7 @@ public class VempainFileCliApplication {
 		return commandRouter.createCompleter(true, debugCompletion);
 	}
 
-	private boolean isEnvDebugCompletionEnabled() {
-		var env = System.getenv("VEMPAIN_CLI_DEBUG_COMPLETION");
+	private static boolean isDebugCompletionEnabled(String env) {
 		if (env == null) {
 			return false;
 		}

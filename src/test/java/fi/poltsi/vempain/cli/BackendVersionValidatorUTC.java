@@ -5,6 +5,7 @@ import org.json.JSONObject;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class BackendVersionValidatorUTC {
@@ -18,5 +19,13 @@ class BackendVersionValidatorUTC {
 	void rejectsDifferentVersion() {
 		assertThrows(IllegalStateException.class,
 					 () -> BackendVersionValidator.validate(new JSONObject().put("version", "0.0.2")));
+	}
+
+	@Test
+	void rejectsResponseWithoutVersion() {
+		var exception = assertThrows(IllegalStateException.class,
+									 () -> BackendVersionValidator.validate(new JSONObject().put("service", "test")));
+
+		assertEquals("Backend version response did not include a version", exception.getMessage());
 	}
 }

@@ -1,5 +1,7 @@
 package fi.poltsi.vempain.cli.core;
 
+import java.io.Console;
+
 /**
  * Abstraction for prompting the user for a password without echoing it.
  * <p>
@@ -17,8 +19,14 @@ public interface PasswordReader {
 	 * when running without a tty (e.g. piped or redirected input).
 	 */
 	static PasswordReader consoleReader() {
+		return consoleReader(System.console());
+	}
+
+	/**
+	 * @param console the console to read from without echo, or {@code null} to read from {@code System.in}
+	 */
+	static PasswordReader consoleReader(Console console) {
 		return prompt -> {
-			var console = System.console();
 			if (console != null) {
 				return console.readPassword("%s", prompt);
 			}
