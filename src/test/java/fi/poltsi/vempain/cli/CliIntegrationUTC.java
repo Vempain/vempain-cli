@@ -1,11 +1,13 @@
 package fi.poltsi.vempain.cli;
 
-import com.sun.net.httpserver.HttpExchange;
-import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
+import fi.poltsi.vempain.cli.core.CommandHistory;
 import fi.poltsi.vempain.cli.core.HttpTransport;
 import fi.poltsi.vempain.cli.core.PasswordReader;
 import fi.poltsi.vempain.cli.core.SessionStore;
+import fi.poltsi.vempain.cli.core.TaskClient;
+import fi.poltsi.vempain.cli.core.TaskMonitor;
+import fi.poltsi.vempain.cli.core.TaskProgress;
 import org.jline.reader.Candidate;
 import org.jline.reader.EndOfFileException;
 import org.jline.reader.LineReader;
@@ -31,11 +33,15 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -283,6 +289,87 @@ class CliIntegrationUTC {
 			assertNull(sessionStore.load());
 			assertTrue(errBytes.toString(StandardCharsets.UTF_8)
 							   .isBlank());
+		}
+	}
+
+	@Test
+	void tagRenameReplaceAndMetadataUpdate_submitBackgroundTasks() throws Exception {
+		try (var server = new MockApiServer()) {
+			server.registerJson("/api/tags/paged", """
+					{"content":[{"id":3,"tag_name":"old","tag_name_de":"alt","tag_name_en":"old","tag_name_es":null,"tag_name_fi":"vanha","tag_name_sv":"gammal"},
+					            {"id":4,"tag_name":"older","tag_name_de":"älter"}],"total_elements":2}
+					""");
+			server.registerJson("/api/tags/all/rename", "{\"task_id\":\"task-rename\",\"type\":\"TAG_RENAME_ACROSS_ALL\",\"status\":\"QUEUED\",\"total_steps\":3}");
+			server.registerJson("/api/tags/all/replace", "{\"task_id\":\"task-replace\",\"type\":\"TAG_REPLACE_ACROSS_ALL\",\"status\":\"QUEUED\",\"total_steps\":2}");
+			server.registerJson("/api/metadata/value", "{\"task_id\":\"task-meta\",\"type\":\"METADATA_UPDATE_VALUE\",\"status\":\"QUEUED\",\"total_steps\":5}");
+
+			var sessionStore = new SessionStore();
+			sessionStore.save(server.baseUrl(), "jwt-tags");
+			var outBytes = new ByteArrayOutputStream();
+			var errBytes = new ByteArrayOutputStream();
+			var app      = new VempainFileCliApplication(sessionStore, new HttpTransport(), new PrintStream(outBytes), new PrintStream(errBytes));
+
+			app.run(new String[]{"tag-rename", "--tag", "old", "--to", "new", "--name-en", "new"});
+			var rename = server.lastRequestBody();
+			assertEquals("old", rename.getString("tag_name"));
+			assertEquals("new", rename.getString("replacement_tag_name"));
+			assertEquals("new", rename.getString("tag_name_en"), "an explicit translation overrides the current one");
+			assertEquals("alt", rename.getString("tag_name_de"), "omitted translations are carried over from the current tag");
+			assertEquals("vanha", rename.getString("tag_name_fi"));
+			assertEquals("gammal", rename.getString("tag_name_sv"));
+			assertFalse(rename.has("tag_name_es"), "a null translation stays unset");
+			assertEquals("[]", rename.getJSONArray("file_ids")
+									 .toString());
+
+			app.run(new String[]{"tag-replace", "--tag", "old", "--with", "new"});
+			var replace = server.lastRequestBody();
+			assertEquals("old", replace.getString("tag_name"));
+			assertEquals("new", replace.getString("replacement_tag_name"));
+
+			app.run(new String[]{"metadata-update", "--group", "XMP-dc", "--key", "Creator", "--value", "Jane Doe", "--new-value", "Jane A. Doe"});
+			var update = server.lastRequestBody();
+			assertEquals("XMP-dc", update.getString("metadata_group"));
+			assertEquals("Creator", update.getString("metadata_key"));
+			assertEquals("Jane Doe", update.getString("metadata_value"));
+			assertEquals("Jane A. Doe", update.getString("new_value"));
+
+			app.run(new String[]{"metadata-update", "--group", "XMP-dc", "--key", "Creator", "--value", "Jane A. Doe", "--remove"});
+			assertEquals("", server.lastRequestBody()
+								   .getString("new_value"), "--remove sends an empty new value");
+
+			var output = outBytes.toString(StandardCharsets.UTF_8);
+			assertTrue(output.contains("Submitted rename of tag 'old' to 'new'."));
+			assertTrue(output.contains("task-rename"));
+			assertTrue(output.contains("Submitted replacement of tag 'old' with 'new'."));
+			assertTrue(output.contains("task-replace"));
+			assertTrue(output.contains("Submitted rewrite of XMP-dc:Creator from 'Jane Doe' to 'Jane A. Doe'."));
+			assertTrue(output.contains("Submitted removal of XMP-dc:Creator = 'Jane A. Doe' from the files."));
+			assertTrue(output.contains("task-meta"));
+			assertTrue(errBytes.toString(StandardCharsets.UTF_8)
+							   .isBlank(), errBytes.toString(StandardCharsets.UTF_8));
+		}
+	}
+
+	@Test
+	void tagAndMetadataCommands_rejectInvalidArgumentsBeforeCallingTheBackend() throws Exception {
+		try (var server = new MockApiServer()) {
+			var sessionStore = new SessionStore();
+			sessionStore.save(server.baseUrl(), "jwt-tags");
+			var outBytes = new ByteArrayOutputStream();
+			var errBytes = new ByteArrayOutputStream();
+			var app      = new VempainFileCliApplication(sessionStore, new HttpTransport(), new PrintStream(outBytes), new PrintStream(errBytes));
+
+			app.run(new String[]{"tag-replace", "--tag", "same", "--with", "same"});
+			app.run(new String[]{"metadata-update", "--group", "XMP-dc", "--key", "Creator", "--value", "x"});
+			app.run(new String[]{"metadata-update", "--group", "XMP-dc", "--key", "Creator", "--value", "x", "--new-value", "y", "--remove"});
+			app.run(new String[]{"tag-rename", "--tag", " ", "--to", "new"});
+
+			var err = errBytes.toString(StandardCharsets.UTF_8);
+			assertTrue(err.contains("--with must name a different tag than --tag"), err);
+			assertTrue(err.contains("Provide --new-value <value> or --remove"), err);
+			assertTrue(err.contains("--new-value and --remove exclude each other"), err);
+			assertTrue(err.contains("--tag is required and must not be blank"), err);
+			assertNull(server.lastRequestBody(), "no request reached the backend");
 		}
 	}
 
@@ -624,6 +711,11 @@ class CliIntegrationUTC {
 					 optionValues(completer, "publish-files"));
 		assertEquals(Set.of("-o", "--original-directory", "-e", "--export-directory", "--monitor"),
 					 optionValues(completer, "scan"));
+		assertEquals(Set.of("--tag", "--to", "--name-de", "--name-en", "--name-es", "--name-fi", "--name-sv", "--monitor"),
+					 optionValues(completer, "tag-rename"));
+		assertEquals(Set.of("--tag", "--with", "--monitor"), optionValues(completer, "tag-replace"));
+		assertEquals(Set.of("--group", "--key", "--value", "--new-value", "--remove", "--monitor"),
+					 optionValues(completer, "metadata-update"));
 		assertEquals(Set.of("list-groups", "publish-group", "publish-groups"), optionValues(completer, "admin"));
 		assertEquals(Set.of("show", "use"), optionValues(completer, "session"));
 		assertEquals(Set.of(), optionValues(completer, "logout"));
@@ -668,12 +760,12 @@ class CliIntegrationUTC {
 		);
 	}
 
-	private static class StubParsedLine implements ParsedLine {
+	static class StubParsedLine implements ParsedLine {
 		private final List<String> words;
 		private final int          wordIndex;
 		private final String       word;
 
-		private StubParsedLine(List<String> words, int wordIndex, String word) {
+		StubParsedLine(List<String> words, int wordIndex, String word) {
 			this.words     = words;
 			this.wordIndex = wordIndex;
 			this.word      = word;
@@ -710,65 +802,92 @@ class CliIntegrationUTC {
 		}
 	}
 
-	private static class MockApiServer implements AutoCloseable {
-		private final HttpServer server;
-		private JSONObject lastRequestBody;
+	/**
+	 * In-process stub of a Vempain backend. Shared by the other {@code *UTC} classes of this package.
+	 */
+	static class MockApiServer implements AutoCloseable {
+		private final HttpServer   server;
+		private final List<String> requests = Collections.synchronizedList(new ArrayList<>());
+		private       JSONObject   lastRequestBody;
 
-		private MockApiServer() throws IOException {
+		MockApiServer() throws IOException {
 			server = HttpServer.create(new InetSocketAddress(0), 0);
 			registerJson("/api/version", "{\"version\":\"0.0.1-SNAPSHOT\",\"service\":\"test\"}");
 			server.start();
 		}
 
-		private void registerJson(String path, String responseBody) {
-			register(path, "application/json", responseBody.getBytes(StandardCharsets.UTF_8));
+		void registerJson(String path, String responseBody) {
+			registerJson(path, 200, responseBody);
 		}
 
-		private void registerBytes(String path, String contentType, byte[] responseBody) {
-			register(path, contentType, responseBody);
+		void registerJson(String path, int status, String responseBody) {
+			registerResponder(path, request -> new Reply(status, responseBody));
 		}
 
-		private void register(String path, String contentType, byte[] responseBody) {
-			server.createContext(path, new HttpHandler() {
-				@Override
-				public void handle(HttpExchange exchange) throws IOException {
-					var body = new String(exchange.getRequestBody()
-					                              .readAllBytes(), StandardCharsets.UTF_8);
-					if (!body.isBlank()) {
-						lastRequestBody = new JSONObject(body);
-					}
-					exchange.getResponseHeaders()
-							.add("Content-Type", contentType);
-					exchange.sendResponseHeaders(200, responseBody.length);
-					try (OutputStream os = exchange.getResponseBody()) {
-						os.write(responseBody);
-					}
+		/**
+		 * Answers the calls to {@code path} with the given bodies in order; the last body is repeated.
+		 */
+		void registerJsonSequence(String path, String... responseBodies) {
+			var calls = new AtomicInteger();
+			registerResponder(path, request -> new Reply(200, responseBodies[Math.min(calls.getAndIncrement(), responseBodies.length - 1)]));
+		}
+
+		/**
+		 * @param responder maps the JSON request body (an empty object for requests without a body) to the reply
+		 */
+		void registerResponder(String path, Function<JSONObject, Reply> responder) {
+			server.createContext(path, exchange -> {
+				var body = new String(exchange.getRequestBody()
+											  .readAllBytes(), StandardCharsets.UTF_8);
+				requests.add(exchange.getRequestMethod() + " " + exchange.getRequestURI()
+																		 .getPath());
+				var requestJson = body.isBlank() ? new JSONObject() : new JSONObject(body);
+				if (!body.isBlank()) {
+					lastRequestBody = requestJson;
 				}
-			});
-		}
-
-		private JSONObject lastRequestBody() {
-			return lastRequestBody;
-		}
-
-		private void registerPathCompletionByPath(Map<String, String> responsesByPath) {
-			server.createContext("/api/path-completion", exchange -> {
-				var requestBody = new String(exchange.getRequestBody()
-													 .readAllBytes(), StandardCharsets.UTF_8);
-				var requestJson  = new JSONObject(requestBody.isBlank() ? "{}" : requestBody);
-				var path         = requestJson.optString("path", "");
-				var responseBody = responsesByPath.getOrDefault(path, "{\"completions\":[]}");
-				var bytes        = responseBody.getBytes(StandardCharsets.UTF_8);
+				var reply = responder.apply(requestJson);
+				var bytes = reply.body()
+								 .getBytes(StandardCharsets.UTF_8);
 				exchange.getResponseHeaders()
 						.add("Content-Type", "application/json");
-				exchange.sendResponseHeaders(200, bytes.length);
+				exchange.sendResponseHeaders(reply.status(), bytes.length == 0 ? -1 : bytes.length);
 				try (OutputStream os = exchange.getResponseBody()) {
 					os.write(bytes);
 				}
 			});
 		}
 
-		private String baseUrl() {
+		void registerBytes(String path, String contentType, byte[] responseBody) {
+			server.createContext(path, exchange -> {
+				exchange.getRequestBody()
+						.readAllBytes();
+				requests.add(exchange.getRequestMethod() + " " + exchange.getRequestURI()
+																		 .getPath());
+				exchange.getResponseHeaders()
+						.add("Content-Type", contentType);
+				exchange.sendResponseHeaders(200, responseBody.length);
+				try (OutputStream os = exchange.getResponseBody()) {
+					os.write(responseBody);
+				}
+			});
+		}
+
+		JSONObject lastRequestBody() {
+			return lastRequestBody;
+		}
+
+		/**
+		 * @return the requests received so far as {@code METHOD /path}, oldest first
+		 */
+		List<String> requests() {
+			return List.copyOf(requests);
+		}
+
+		void registerPathCompletionByPath(Map<String, String> responsesByPath) {
+			registerResponder("/api/path-completion", request -> new Reply(200, responsesByPath.getOrDefault(request.optString("path", ""), "{\"completions\":[]}")));
+		}
+
+		String baseUrl() {
 			return "http://localhost:" + server.getAddress()
 											   .getPort() + "/api";
 		}
@@ -776,6 +895,9 @@ class CliIntegrationUTC {
 		@Override
 		public void close() {
 			server.stop(0);
+		}
+
+		record Reply(int status, String body) {
 		}
 	}
 
@@ -919,4 +1041,342 @@ class CliIntegrationUTC {
 	}
 
 
+	@Test
+	void tasksAndTaskCancel_useTheSessionOfTheRequestedBackend() throws Exception {
+		try (var server = new MockApiServer()) {
+			server.registerJson("/api/tasks", "[{\"task_id\":\"t-1\",\"status\":\"RUNNING\",\"percent\":40,\"title\":\"Scanning\"}]");
+			server.registerJson("/api/tasks/t-1/cancel", "{\"task_id\":\"t-1\",\"status\":\"CANCELLED\",\"percent\":40,\"error_message\":\"Cancelled by user\"}");
+			var sessionStore = new SessionStore();
+			sessionStore.save(server.baseUrl(), "jwt-tasks");
+			var outBytes = new ByteArrayOutputStream();
+			var errBytes = new ByteArrayOutputStream();
+			var app      = new VempainFileCliApplication(sessionStore, new HttpTransport(), new PrintStream(outBytes), new PrintStream(errBytes));
+
+			app.run(new String[]{"tasks"});
+			assertTrue(outBytes.toString(StandardCharsets.UTF_8)
+							   .contains("t-1 RUNNING       40% Scanning"), outBytes.toString(StandardCharsets.UTF_8));
+
+			outBytes.reset();
+			app.run(new String[]{"tasks", "--raw"});
+			var raw = new org.json.JSONArray(outBytes.toString(StandardCharsets.UTF_8));
+			assertEquals("t-1", raw.getJSONObject(0)
+								   .getString("task_id"));
+
+			outBytes.reset();
+			app.run(new String[]{"task-cancel", "--task-id", "t-1"});
+			var cancelled = outBytes.toString(StandardCharsets.UTF_8);
+			assertTrue(cancelled.contains("Task t-1: CANCELLED (40%)"), cancelled);
+			assertTrue(cancelled.contains("Error: Cancelled by user"), cancelled);
+			assertTrue(server.requests()
+							 .contains("POST /api/tasks/t-1/cancel"));
+
+			app.run(new String[]{"tasks", "--backend", "admin"});
+			assertTrue(errBytes.toString(StandardCharsets.UTF_8)
+							   .contains("Not logged in for backend 'admin'"));
+		}
+	}
+
+	@Test
+	void adminCommands_coverOptionsEmptyResultsPagingAndScheduling() throws Exception {
+		try (var server = new MockApiServer()) {
+			server.registerJsonSequence("/api/content-management/galleries/paged-list",
+										"[{\"id\":1,\"short_name\":\"Spring\",\"description\":\"Spring photos\"}]",
+										"{\"content\":[],\"page\":0}",
+										"{\"content\":[{\"id\":2,\"short_name\":\"Winter\"}],\"pageNumber\":1,\"totalPages\":3,\"totalElements\":30}");
+			server.registerJson("/api/content-management/galleries/publish", "{\"task_id\":\"task-pub\",\"status\":\"QUEUED\"}");
+			server.registerJson("/api/content-management/galleries/publish-selected", "{\"status\":\"QUEUED\"}");
+			var sessionStore = new SessionStore();
+			sessionStore.save(SessionStore.BACKEND_ADMIN, server.baseUrl(), "admin-jwt");
+			var outBytes = new ByteArrayOutputStream();
+			var errBytes = new ByteArrayOutputStream();
+			var app      = new VempainFileCliApplication(sessionStore, new HttpTransport(), new PrintStream(outBytes), new PrintStream(errBytes));
+
+			app.run(new String[]{"admin", "list-groups", "--details", "basic", "--search", "spr", "--page", "1", "--size", "5"});
+			var request = server.lastRequestBody();
+			assertEquals(1, request.getInt("page"));
+			assertEquals(5, request.getInt("size"));
+			assertEquals("spr", request.getString("search"));
+			assertTrue(outBytes.toString(StandardCharsets.UTF_8)
+							   .contains("Spring"), "an array response is listed through its items");
+			assertFalse(outBytes.toString(StandardCharsets.UTF_8)
+								.contains("Page "), "no paging line without paging keys");
+
+			outBytes.reset();
+			app.run(new String[]{"admin", "list-groups"});
+			assertTrue(outBytes.toString(StandardCharsets.UTF_8)
+							   .contains("No admin groups found."));
+
+			outBytes.reset();
+			app.run(new String[]{"admin", "list-groups"});
+			assertTrue(outBytes.toString(StandardCharsets.UTF_8)
+							   .contains("Page 1/3, total elements: 30"), outBytes.toString(StandardCharsets.UTF_8));
+
+			app.run(new String[]{"admin", "publish-group", "--id", "7", "--publish-datetime", "2026-12-24T18:00:00"});
+			var scheduled = server.lastRequestBody();
+			assertTrue(scheduled.getBoolean("publish_schedule"));
+			assertEquals("2026-12-24T18:00:00", scheduled.getString("publish_date_time"));
+			assertFalse(scheduled.has("publish_message"));
+
+			app.run(new String[]{"admin", "publish-groups", "--ids", " , "});
+			app.run(new String[]{"admin", "publish-groups", "--ids", "7", "--monitor"});
+			outBytes.reset();
+			app.run(new String[]{"admin"});
+			assertTrue(outBytes.toString(StandardCharsets.UTF_8)
+							   .contains("Usage: "), "admin without a subcommand prints its usage");
+
+			var err = errBytes.toString(StandardCharsets.UTF_8);
+			assertTrue(err.contains("Provide at least one gallery id with --ids"), err);
+			assertTrue(err.contains("The backend did not return a task_id; cannot monitor the request."), err);
+		}
+	}
+
+	@Test
+	void adminCommands_withoutAdminSession_explainHowToLogIn() {
+		var outBytes = new ByteArrayOutputStream();
+		var errBytes = new ByteArrayOutputStream();
+		var app      = new VempainFileCliApplication(new SessionStore(), new HttpTransport(), new PrintStream(outBytes), new PrintStream(errBytes));
+
+		app.run(new String[]{"admin", "list-groups"});
+
+		assertTrue(errBytes.toString(StandardCharsets.UTF_8)
+						   .contains("Not logged in for backend 'admin'. Run: login --backend admin"));
+	}
+
+	@Test
+	void sessionCommands_showRawAndTextAndSwitchTheActiveBackend() throws Exception {
+		var sessionStore = new SessionStore();
+		sessionStore.save(SessionStore.BACKEND_FILE, "http://file.example.com/api", "file-jwt");
+		sessionStore.save(SessionStore.BACKEND_ADMIN, "http://admin.example.com/api", "admin-jwt");
+		var outBytes = new ByteArrayOutputStream();
+		var errBytes = new ByteArrayOutputStream();
+		var app      = new VempainFileCliApplication(sessionStore, new HttpTransport(), new PrintStream(outBytes), new PrintStream(errBytes));
+
+		app.run(new String[]{"session", "show", "--raw"});
+		var raw = new JSONObject(outBytes.toString(StandardCharsets.UTF_8));
+		assertEquals("admin", raw.getString("active_backend"));
+		assertEquals("http://file.example.com/api", raw.getJSONObject("backends")
+													   .getJSONObject("file")
+													   .getString("base_url"));
+		assertEquals("http://admin.example.com/api", raw.getJSONObject("backends")
+														.getJSONObject("admin")
+														.getString("base_url"));
+		assertFalse(outBytes.toString(StandardCharsets.UTF_8)
+							.contains("jwt"), "tokens are never printed");
+
+		outBytes.reset();
+		app.run(new String[]{"session", "use", "--backend", "file"});
+		assertTrue(outBytes.toString(StandardCharsets.UTF_8)
+						   .contains("Active backend set to 'file'."));
+		assertEquals(SessionStore.BACKEND_FILE, sessionStore.getActiveBackend());
+
+		outBytes.reset();
+		app.run(new String[]{"session", "show"});
+		var text = outBytes.toString(StandardCharsets.UTF_8);
+		assertTrue(text.contains("Active backend: file (logged in)"), text);
+		assertTrue(text.contains("  file:  http://file.example.com/api"), text);
+		assertTrue(text.contains("  admin: http://admin.example.com/api"), text);
+
+		outBytes.reset();
+		app.run(new String[]{"session"});
+		assertTrue(outBytes.toString(StandardCharsets.UTF_8)
+						   .contains("Usage: "), "session without a subcommand prints its usage");
+
+		outBytes.reset();
+		app.run(new String[]{"--debug-completion"});
+		assertTrue(outBytes.toString(StandardCharsets.UTF_8)
+						   .contains("Usage: vempain-file-cli"), "root options without a command print the usage");
+		assertTrue(errBytes.toString(StandardCharsets.UTF_8)
+						   .isBlank());
+	}
+
+	@Test
+	void fileCommands_coverSearchCamelCasePagingScanBranchesAndTagLookupFailures() throws Exception {
+		try (var server = new MockApiServer()) {
+			server.registerJson("/api/files/image/paged",
+								"{\"content\":[{\"id\":1,\"filename\":\"a.jpg\",\"file_type\":\"IMAGE\",\"filesize\":1,\"created\":\"x\"}],"
+								+ "\"page\":2,\"totalPages\":5,\"totalElements\":101}");
+			server.registerJson("/api/scan-files", "{\"task_id\":\"scan-1\",\"status\":\"QUEUED\"}");
+			server.registerJson("/api/data-publish/gps-timeseries", "{\"identifier\":\"gps\"}");
+			server.registerJsonSequence("/api/tags/paged", "{}", "{\"content\":[{\"id\":9,\"tag_name\":\"other\"}]}");
+			server.registerJson("/api/tags/all/rename", "{\"task_id\":\"task-rename\",\"status\":\"QUEUED\"}");
+			var sessionStore = new SessionStore();
+			sessionStore.save(server.baseUrl(), "jwt-files");
+			var outBytes = new ByteArrayOutputStream();
+			var errBytes = new ByteArrayOutputStream();
+			var app      = new VempainFileCliApplication(sessionStore, new HttpTransport(), new PrintStream(outBytes), new PrintStream(errBytes));
+
+			app.run(new String[]{"files-list", "--type", "image", "--search", "holiday", "--direction", "desc"});
+			assertEquals("holiday", server.lastRequestBody()
+										  .getString("search"));
+			assertEquals("DESC", server.lastRequestBody()
+									   .getString("direction"));
+			assertTrue(outBytes.toString(StandardCharsets.UTF_8)
+							   .contains("Page 2/5, total elements: 101"), "camelCase paging keys are understood");
+
+			outBytes.reset();
+			app.run(new String[]{"scan", "-e", "/export"});
+			assertEquals("/export", server.lastRequestBody()
+										  .getString("export_directory"));
+			assertFalse(server.lastRequestBody()
+							  .has("original_directory"));
+			assertTrue(outBytes.toString(StandardCharsets.UTF_8)
+							   .contains("\"task_id\": \"scan-1\""), "an object response is printed as such");
+
+			app.run(new String[]{"publish-gps", "--file-group-id", "1", "--time-series-name", "gps", "--monitor"});
+			assertTrue(errBytes.toString(StandardCharsets.UTF_8)
+							   .contains("The backend did not return a task_id; cannot monitor the request."));
+
+			app.run(new String[]{"tag-rename", "--tag", "old", "--to", "new"});
+			assertFalse(server.lastRequestBody()
+							  .has("tag_name_en"), "no translations are carried over when the lookup returns no content");
+			app.run(new String[]{"tag-rename", "--tag", "old", "--to", "new"});
+			assertEquals("new", server.lastRequestBody()
+									  .getString("replacement_tag_name"), "a lookup that lists other tags only still renames");
+		}
+		try (var server = new MockApiServer()) {
+			server.registerJson("/api/tags/paged", 500, "{\"error\":\"boom\"}");
+			server.registerJson("/api/tags/all/rename", "{\"task_id\":\"task-rename\",\"status\":\"QUEUED\"}");
+			var sessionStore = new SessionStore();
+			sessionStore.save(server.baseUrl(), "jwt-files");
+			var outBytes = new ByteArrayOutputStream();
+			var app      = new VempainFileCliApplication(sessionStore, new HttpTransport(), new PrintStream(outBytes), System.err);
+
+			app.run(new String[]{"tag-rename", "--tag", "old", "--to", "new"});
+
+			var output = outBytes.toString(StandardCharsets.UTF_8);
+			assertTrue(output.contains("Could not look up the current translations of tag 'old'"), output);
+			assertTrue(output.contains("Submitted rename of tag 'old' to 'new'."), "the rename is still sent");
+		}
+	}
+
+	@Test
+	void publishFiles_rejectsInvalidIdFiles() throws Exception {
+		var invalid = tempHome.resolve("invalid.txt");
+		Files.writeString(invalid, "42\nabc\n");
+		var zero = tempHome.resolve("zero.txt");
+		Files.writeString(zero, "0\n");
+		var empty = tempHome.resolve("empty.txt");
+		Files.writeString(empty, "# nothing\n\n");
+		var sessionStore = new SessionStore();
+		sessionStore.save("http://localhost:1/api", "jwt-bulk");
+		var errBytes = new ByteArrayOutputStream();
+		var app      = new VempainFileCliApplication(sessionStore, new HttpTransport(), new PrintStream(OutputStream.nullOutputStream()), new PrintStream(errBytes));
+
+		app.run(new String[]{"publish-files", "--ids-file", invalid.toString()});
+		app.run(new String[]{"publish-files", "--ids-file", zero.toString()});
+		app.run(new String[]{"publish-files", "--ids-file", empty.toString()});
+
+		var err = errBytes.toString(StandardCharsets.UTF_8);
+		assertTrue(err.contains("Invalid file ID at " + invalid + ":2: abc"), err);
+		assertTrue(err.contains("Invalid file ID at " + zero + ":1: 0"), err);
+		assertTrue(err.contains("The file contains no positive file IDs: " + empty), err);
+	}
+
+	@Test
+	void publishFiles_fallsBackToPerFilePublishingWhenBulkPublishingIsMissing() throws Exception {
+		try (var server = new MockApiServer()) {
+			server.registerJson("/api/publish/files", 404, "{\"error\":\"not found\"}");
+			server.registerResponder("/api/publish/file", request -> switch (request.getInt("file_id")) {
+				case 42 -> new MockApiServer.Reply(200, "{\"task_id\":\"t-42\",\"status\":\"QUEUED\"}");
+				case 17 -> new MockApiServer.Reply(200, "{\"status\":\"QUEUED\"}");
+				default -> new MockApiServer.Reply(500, "{\"error\":\"broken\"}");
+			});
+			var sessionStore = new SessionStore();
+			sessionStore.save(server.baseUrl(), "jwt-bulk");
+			var outBytes  = new ByteArrayOutputStream();
+			var errBytes  = new ByteArrayOutputStream();
+			var monitored = new ArrayList<String>();
+			var router    = routerWithStubMonitor(sessionStore, outBytes, errBytes, monitored);
+
+			router.run(new String[]{"publish-files", "--ids-file", idsFile("fallback.txt", "42\n17\n")}, false);
+			var output = outBytes.toString(StandardCharsets.UTF_8);
+			assertTrue(output.contains("Bulk publishing is not available on this file backend; falling back to POST /publish/file for each ID."), output);
+			assertTrue(output.contains("Submitted 2 of 2 file IDs individually."), output);
+			assertEquals(List.of("POST /api/publish/files", "POST /api/publish/file", "POST /api/publish/file"), server.requests());
+			assertTrue(monitored.isEmpty());
+
+			outBytes.reset();
+			router.run(new String[]{"publish-files", "--ids-file", idsFile("partial.txt", "42\n99\n")}, false);
+			output = outBytes.toString(StandardCharsets.UTF_8);
+			assertTrue(output.contains("Submitted 1 of 2 file IDs individually."), output);
+			assertTrue(output.contains("Failed file IDs:"), output);
+			assertTrue(output.contains("99: POST " + server.baseUrl() + "/publish/file failed: HTTP 500"), output);
+			assertTrue(errBytes.toString(StandardCharsets.UTF_8)
+							   .contains("Error: Some file IDs could not be submitted"));
+
+			outBytes.reset();
+			router.run(new String[]{"publish-files", "--ids-file", idsFile("monitored.txt", "42\n"), "--monitor"}, false);
+			assertEquals(List.of("t-42"), monitored, "the fallback tasks are monitored one by one");
+			assertTrue(outBytes.toString(StandardCharsets.UTF_8)
+							   .contains("Task t-42: COMPLETED (100%)"));
+
+			errBytes.reset();
+			router.run(new String[]{"publish-files", "--ids-file", idsFile("no-task.txt", "17\n"), "--monitor"}, false);
+			assertTrue(errBytes.toString(StandardCharsets.UTF_8)
+							   .contains("The backend did not return task_id for the fallback submissions; cannot monitor them."));
+		}
+		try (var server = new MockApiServer()) {
+			server.registerJson("/api/publish/files", 500, "{\"error\":\"server down\"}");
+			var sessionStore = new SessionStore();
+			sessionStore.save(server.baseUrl(), "jwt-bulk");
+			var errBytes = new ByteArrayOutputStream();
+			var app      = new VempainFileCliApplication(sessionStore, new HttpTransport(), new PrintStream(OutputStream.nullOutputStream()), new PrintStream(errBytes));
+
+			app.run(new String[]{"publish-files", "--ids-file", idsFile("other-error.txt", "42\n")});
+
+			assertTrue(errBytes.toString(StandardCharsets.UTF_8)
+							   .contains("HTTP 500"), "other errors are not turned into a fallback");
+			assertEquals(List.of("POST /api/publish/files"), server.requests());
+		}
+	}
+
+	@Test
+	void monitorFlag_opensTheTaskMonitorForScanAndAdminPublishing() throws Exception {
+		try (var server = new MockApiServer()) {
+			server.registerJson("/api/scan-files", "{\"task_id\":\"scan-7\",\"status\":\"QUEUED\"}");
+			server.registerJson("/api/content-management/galleries/publish", "{\"task_id\":\"gallery-7\",\"status\":\"QUEUED\"}");
+			var sessionStore = new SessionStore();
+			sessionStore.save(SessionStore.BACKEND_FILE, server.baseUrl(), "file-jwt");
+			sessionStore.save(SessionStore.BACKEND_ADMIN, server.baseUrl(), "admin-jwt");
+			var outBytes  = new ByteArrayOutputStream();
+			var errBytes  = new ByteArrayOutputStream();
+			var monitored = new ArrayList<String>();
+			var router    = routerWithStubMonitor(sessionStore, outBytes, errBytes, monitored);
+
+			router.run(new String[]{"scan", "-o", "/music", "--monitor"}, false);
+			router.run(new String[]{"admin", "publish-group", "--id", "7", "--monitor"}, false);
+
+			assertEquals(List.of("scan-7", "gallery-7"), monitored);
+			var output = outBytes.toString(StandardCharsets.UTF_8);
+			assertTrue(output.contains("Task scan-7: COMPLETED (100%)"), output);
+			assertTrue(output.contains("Task gallery-7: COMPLETED (100%)"), output);
+			assertTrue(errBytes.toString(StandardCharsets.UTF_8)
+							   .isBlank(), errBytes.toString(StandardCharsets.UTF_8));
+		}
+	}
+
+	private String idsFile(String name, String content) throws IOException {
+		var file = tempHome.resolve(name);
+		Files.writeString(file, content);
+		return file.toString();
+	}
+
+	/**
+	 * A router whose task monitor records the monitored task ids and reports them completed instead of opening a terminal.
+	 */
+	private CommandRouter routerWithStubMonitor(SessionStore sessionStore, ByteArrayOutputStream outBytes, ByteArrayOutputStream errBytes,
+												List<String> monitored) {
+		var out = new PrintStream(outBytes);
+		Function<TaskClient, TaskMonitor> monitorFactory = taskClient -> new TaskMonitor(taskClient, out) {
+			@Override
+			public TaskProgress monitor(SessionStore.Session session, String taskId, Duration interval) {
+				monitored.add(taskId);
+				return TaskProgress.fromJson(new JSONObject().put("task_id", taskId)
+															 .put("status", "COMPLETED")
+															 .put("percent", 100));
+			}
+		};
+		return new CommandRouter(sessionStore, new HttpTransport(), out, new PrintStream(errBytes), prompt -> "secret".toCharArray(),
+								 new CommandHistory(tempHome.resolve("history")), monitorFactory);
+	}
 }

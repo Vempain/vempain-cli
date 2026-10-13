@@ -23,7 +23,7 @@ public class TaskMonitor {
 	}
 
 	public TaskProgress monitor(SessionStore.Session session, String taskId, Duration interval) throws Exception {
-		try (Terminal terminal = new DefaultTerminalFactory().createTerminal()) {
+		try (Terminal terminal = createTerminal()) {
 			var screen = new TerminalScreen(terminal);
 			screen.startScreen();
 			try {
@@ -32,6 +32,13 @@ public class TaskMonitor {
 				screen.stopScreen();
 			}
 		}
+	}
+
+	/**
+	 * Opens the terminal the full-screen monitor draws on; tests override this with a virtual terminal.
+	 */
+	protected Terminal createTerminal() throws IOException {
+		return new DefaultTerminalFactory().createTerminal();
 	}
 
 	private TaskProgress monitorScreen(TerminalScreen screen, SessionStore.Session session, String taskId, Duration interval) throws Exception {

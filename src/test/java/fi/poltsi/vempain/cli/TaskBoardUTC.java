@@ -4,6 +4,7 @@ import com.sun.net.httpserver.HttpServer;
 import fi.poltsi.vempain.cli.core.HttpTransport;
 import fi.poltsi.vempain.cli.core.SessionStore;
 import fi.poltsi.vempain.cli.core.TaskClient;
+import fi.poltsi.vempain.cli.core.TaskProgress;
 import fi.poltsi.vempain.cli.tui.TaskBoard;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -120,5 +121,51 @@ class TaskBoardUTC {
 	private String baseUrl(String prefix) {
 		return "http://localhost:" + server.getAddress()
 										   .getPort() + "/" + prefix + "/api";
+	}
+
+	@Test
+	void refresh_stopsWhenInterruptedAndKeepsTheInterruptFlag() throws Exception {
+		respond("/file/api/tasks", 200, MIXED_TASKS);
+		var sessionStore = new SessionStore();
+		sessionStore.save(SessionStore.BACKEND_FILE, baseUrl("file"), "file-jwt");
+		var board = new TaskBoard(sessionStore, new TaskClient(new HttpTransport()));
+
+		Thread.currentThread()
+			  .interrupt();
+		List<TaskBoard.BackendTasks> snapshot;
+		try {
+			snapshot = board.refresh();
+		} finally {
+			assertTrue(Thread.interrupted(), "the interrupt flag is restored for the caller");
+		}
+
+		assertTrue(snapshot.isEmpty(), "an interrupted poll returns what was collected so far");
+	}
+
+	@Test
+	void refresh_namesTheExceptionClassWhenItHasNoMessage() throws Exception {
+		var sessionStore = new SessionStore();
+		sessionStore.save(SessionStore.BACKEND_FILE, baseUrl("file"), "file-jwt");
+		var failing = new TaskClient(new HttpTransport()) {
+			@Override
+			public List<TaskProgress> list(SessionStore.Session session) {
+				throw new IllegalStateException();
+			}
+		};
+
+		var lines = TaskBoard.lines(new TaskBoard(sessionStore, failing).refresh());
+
+		assertEquals(List.of("[file] tasks unavailable: IllegalStateException"), lines);
+	}
+
+	@Test
+	void lines_fallBackToTheTaskIdWithoutTitleAndType() throws Exception {
+		respond("/file/api/tasks", 200, "[{\"task_id\":\"t-9\",\"status\":\"RUNNING\",\"percent\":5}]");
+		var sessionStore = new SessionStore();
+		sessionStore.save(SessionStore.BACKEND_FILE, baseUrl("file"), "file-jwt");
+
+		var lines = TaskBoard.lines(new TaskBoard(sessionStore, new TaskClient(new HttpTransport())).refresh());
+
+		assertEquals(List.of("[file] RUNNING      5%  t-9"), lines);
 	}
 }

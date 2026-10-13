@@ -32,6 +32,11 @@ and sessions live under `~/.config/vempain-file-cli/`. Do not rename these witho
   through a second `CommandRouter` whose output, password prompt (masked dialog) and task monitor (`tui.TuiTaskMonitor`, which points at the
   tasks window instead of opening the full-screen `core.TaskMonitor`) are bound to the TUI. Lanterna owns the GUI thread; commands run on one
   command thread and the task poller on another, and they touch components only through `invokeLater`/`invokeAndWait`.
+- `file.FileCommands` also carries the file backend's rewrite-across-all-files commands: `tag-rename` (`POST /tags/all/rename`, after a
+  `POST /tags/paged` lookup so the current translations are resent, because the backend clears the ones a request omits), `tag-replace`
+  (`POST /tags/all/replace`) and `metadata-update` (`POST /metadata/value`, `--remove` sends an empty `new_value`). All three answer `202`
+  with a task; like `scan` and the publish commands they take `--monitor` and are followed in the TUI's running tasks window in shell mode.
+  Argument validation happens before any request (`CliIntegrationUTC`).
 - `core.HttpTransport` is the only HTTP client: login, JSON endpoints (`getJson`, `postJson`, `patchJson`) and byte content. Tests instantiate it directly.
 - `core.SessionStore` persists one session per backend (`file`, `admin`) and the active backend in `session.json`; it still reads the legacy
   single-session file format.
@@ -64,6 +69,11 @@ in `~/.gradle/gradle.properties` for GitHub Packages.
 - Test suffix: every test here is a `*UTC` (no Spring context, no containers). Name the test after the class under test (`HttpTransportUTC`,
   `SessionStoreUTC`); `CliIntegrationUTC` exercises the full command path against the stub server. `TuiShellUTC` drives the TUI headless on a
   Lanterna `DefaultVirtualTerminal` (keystrokes in, screen characters out); keep TUI changes covered there.
+- Coverage: `jacocoTestCoverageVerification` requires 95% line coverage in every `fi.poltsi.vempain.cli` package; keep every class at that
+  level. The seams that make the terminal-bound code testable are `TaskMonitor.createTerminal()` (overridden with a virtual terminal in
+  `TaskMonitorUTC`), `PasswordReader.consoleReader(Console)` (mocked console), `CliVersion.orDevelopment(String)` and
+  `VempainFileCliApplication.run(String[], String)` (the `VEMPAIN_CLI_DEBUG_COMPLETION` value); `CliIntegrationUTC.MockApiServer` and
+  `StubParsedLine` are shared by the other `*UTC` classes.
 - Run `./gradlew clean test` after every code change and report the result.
 
 ## CI

@@ -16,6 +16,9 @@ Current implementation supports both Vempain File and Vempain Admin backend APIs
 - Data publish commands (music + gps-time-series)
 - Bulk file publishing from a UTF-8 file of file IDs (`publish-files --ids-file`)
 - Scan command for original/export directories
+- Tag and metadata rewrites across all files, as background tasks of the file backend: `tag-rename --tag <name> --to <new-name>` (keeps the
+  current translations unless `--name-de|en|es|fi|sv` replace them), `tag-replace --tag <name> --with <existing-tag>` and
+  `metadata-update --group <group> --key <key> --value <current> --new-value <new>` (`--remove` deletes the entry from the files)
 - Background task listing, cancellation, and a Lanterna full-screen task monitor
 - Admin group (gallery) commands:
   - `admin list-groups`
@@ -84,6 +87,10 @@ java -jar build/libs/vf-cli.jar admin list-groups --details FULL
 java -jar build/libs/vf-cli.jar admin publish-group --id 7 --message "Publish now"
 java -jar build/libs/vf-cli.jar admin publish-groups --ids 7,8,9
 java -jar build/libs/vf-cli.jar scan --original-directory /music
+java -jar build/libs/vf-cli.jar tag-rename --tag "I maailmansota" --to "ensimmäinen maailmansota" --monitor
+java -jar build/libs/vf-cli.jar tag-replace --tag duplicate --with canonical --monitor
+java -jar build/libs/vf-cli.jar metadata-update --group XMP-dc --key Creator --value "Jane Doe" --new-value "Jane A. Doe" --monitor
+java -jar build/libs/vf-cli.jar metadata-update --group XMP-dc --key Creator --value "Jane A. Doe" --remove
 java -jar build/libs/vf-cli.jar tasks --backend file
 java -jar build/libs/vf-cli.jar task-monitor --backend file --task-id <task-id>
 java -jar build/libs/vf-cli.jar task-cancel --backend file --task-id <task-id>
