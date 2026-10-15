@@ -1,0 +1,7 @@
+* text=auto eol=lf
+*.java text diff=java
+*.md text diff=markdown
+*.xml text
+*.jar binary
+/gradlew text eol=lf
+*.bat text eol=crlf

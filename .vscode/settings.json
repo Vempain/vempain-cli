@@ -1,0 +1,47 @@
+{
+  // VS Code and Cursor share this file (Cursor is a VS Code fork and reads .vscode/).
+  // The Red Hat Java extension IS the Eclipse JDT formatter, so pointing it at the team profile
+  // yields byte-identical output to the Maven build. Nothing else to install or configure.
+  "java.format.settings.url": ".config/eclipse-formatter.xml",
+  "java.format.settings.profile": "Team Style",
+  "java.format.enabled": true,
+  "java.format.onType.enabled": false,
+  "java.format.comments.enabled": true,
+  "java.completion.importOrder": [
+    "java",
+    "javax",
+    "jakarta",
+    "org",
+    "com",
+    "",
+    "#"
+  ],
+  "java.sources.organizeImports.starThreshold": 999,
+  "java.sources.organizeImports.staticStarThreshold": 999,
+  "java.saveActions.organizeImports": true,
+  "java.checkstyle.configuration": "${workspaceFolder}/.config/checkstyle.xml",
+  "java.checkstyle.version": "14.3.0",
+  "java.checkstyle.properties": {
+    "checkstyle.suppressions.file": "${workspaceFolder}/.config/checkstyle-suppressions.xml",
+    "checkstyle.legacy.suppressions.file": "${workspaceFolder}/.config/checkstyle-legacy-suppressions.xml"
+  },
+  "java.checkstyle.autocheck": true,
+  "[java]": {
+    "editor.defaultFormatter": "redhat.java",
+    "editor.formatOnSave": true,
+    "editor.rulers": [
+      160
+    ]
+  },
+  "[markdown]": {
+    "editor.rulers": [
+      160
+    ]
+  },
+  "editor.rulers": [
+    160
+  ],
+  "files.insertFinalNewline": true,
+  "files.trimTrailingWhitespace": true,
+  "files.eol": "\n"
+}

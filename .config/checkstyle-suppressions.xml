@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<!DOCTYPE suppressions PUBLIC
+  "-//Checkstyle//DTD SuppressionFilter Configuration 1.2//EN"
+  "https://checkstyle.org/dtds/suppressions_1_2.dtd">
+<suppressions>
+  <!-- Tests may be long and deeply nested; relax structural limits there -->
+  <suppress checks="MethodLength|CyclomaticComplexity|JavadocMethod" files="[\\/]src[\\/]test[\\/]"/>
+  <!-- Generated sources are never hand-formatted -->
+  <suppress checks=".*" files="[\\/]target[\\/]generated-sources[\\/]"/>
+</suppressions>

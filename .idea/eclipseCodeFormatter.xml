@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Project-level settings for the IntelliJ plugin "Adapter for Eclipse Code Formatter"
+  (plugin id: EclipseCodeFormatter). Committing this file means a developer only has to
+  install the plugin; it is then already pointed at the shared profile.
+-->
+<project version="4">
+  <component name="EclipseCodeFormatterProjectSettings">
+    <option name="projectSpecificProfile">
+      <ProjectSpecificProfile>
+        <option name="formatter" value="ECLIPSE" />
+        <option name="importOrder" value="java;javax;jakarta;org;com;;\#" />
+        <option name="importOrderFromFile" value="true" />
+        <option name="importOrderConfigFilePath" value="$PROJECT_DIR$/.config/eclipse.importorder" />
+        <option name="optimizeImports" value="true" />
+        <option name="pathToConfigFileJava" value="$PROJECT_DIR$/.config/eclipse-formatter.xml" />
+        <option name="selectedJavaProfile" value="Team Style" />
+        <option name="useForLiveTemplates" value="false" />
+        <option name="enableJavaFormatting" value="true" />
+        <option name="enableJSFormatting" value="false" />
+      </ProjectSpecificProfile>
+    </option>
+  </component>
+</project>

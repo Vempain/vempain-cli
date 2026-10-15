@@ -1,0 +1,8 @@
+{
+  // VS Code / Cursor prompt to install these on first open of the workspace.
+  "recommendations": [
+    "vscjava.vscode-java-pack",
+    "shengchen.vscode-checkstyle",
+    "editorconfig.editorconfig"
+  ]
+}

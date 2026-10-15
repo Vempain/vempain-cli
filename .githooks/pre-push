@@ -1,0 +1,7 @@
+#!/usr/bin/env sh
+# Pre-push hook: verify formatting + Checkstyle + build constraints before the code leaves the machine.
+# Cheaper than waiting for CI to fail. Skip once with: git push --no-verify
+set -eu
+[ -x ./gradlew ] || { echo "[pre-push] ./gradlew not found; the convention requires the Gradle wrapper" >&2; exit 1; }
+echo "[pre-push] verifyBuildConstraints + spotlessCheck + checkstyle..."
+./gradlew -q --continue verifyBuildConstraints spotlessCheck checkstyleMain checkstyleTest

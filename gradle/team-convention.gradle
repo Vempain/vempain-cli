@@ -1,0 +1,157 @@
+// Team code convention for Gradle builds. Applied from the root build file, nothing else:
+//   Kotlin DSL:  apply(from = "gradle/team-convention.gradle")
+//   Groovy DSL:  apply from: 'gradle/team-convention.gradle'
+// This file is the Gradle counterpart of the plugin blocks in the Maven baseline POM. The rules themselves live in
+// .config/ (formatter profile, import order, Checkstyle). Written in Groovy so one file serves both DSLs and needs
+// no buildSrc or included build: it brings the Spotless plugin onto its own classpath.
+
+import org.gradle.util.GradleVersion
+
+buildscript {
+    repositories {
+        gradlePluginPortal()
+        mavenCentral()
+    }
+    dependencies {
+        classpath 'com.diffplug.spotless:spotless-plugin-gradle:8.10.3'
+    }
+}
+
+// Single place to bump tool versions. Verified against Maven Central / services.gradle.org on 2026-10-05.
+// A script-local variable, not an ext property: closures capture it lexically, whereas a root-project property read from a
+// subproject is an "implicit lookup in parent projects", deprecated in Gradle 9 and an error in Gradle 10.
+def convention = [
+    spotlessVersion   : '8.10.3',
+    eclipseJdtVersion : '4.40',   // 4.37+ parses Java 25; output drifts between JDT releases, so pin it
+    checkstyleVersion : '14.3.0',
+    minGradleVersion  : '9.0',
+    javaRelease       : 25,
+    bannedDependencies: ['junit:junit', 'log4j:log4j', 'org.slf4j:slf4j-log4j12'],
+]
+def configDir = rootProject.file('.config')
+// Adoption ratchet: set convention.ratchetFrom=origin/main in gradle.properties while legacy code converges; remove it
+// after the whole-codebase reformat. Bypass once with -Pconvention.ratchetFrom=NONE.
+def ratchetRef = (rootProject.findProperty('convention.ratchetFrom') ?: '').toString().trim()   // not named ratchetFrom: it would shadow the Spotless DSL method
+
+// ============================================================
+// 0. BUILD CONSTRAINTS (what maven-enforcer-plugin does in the Maven baseline). Fail fast, before anything compiles.
+// ============================================================
+if (GradleVersion.current() < GradleVersion.version(convention.minGradleVersion)) {
+    throw new GradleException("[team-convention] Gradle ${convention.minGradleVersion}+ is required, found ${GradleVersion.current().version}. Use ./gradlew.")
+}
+if (!JavaVersion.current().isCompatibleWith(JavaVersion.toVersion(convention.javaRelease))) {
+    throw new GradleException("[team-convention] JDK ${convention.javaRelease}+ is required to run the build, found ${JavaVersion.current()}.")
+}
+
+allprojects { proj ->
+    // Spotless and Checkstyle resolve their own jars (Eclipse JDT, flexmark, Checkstyle) from the project's repositories.
+    // A project that declares none (typically a multi-module root) gets Maven Central for that purpose.
+    proj.afterEvaluate {
+        if (proj.repositories.isEmpty()) {
+            proj.repositories.mavenCentral()
+        }
+    }
+
+    proj.configurations.configureEach { cfg ->
+        resolutionStrategy.eachDependency { details ->
+            def ga = "${details.requested.group}:${details.requested.name}".toString()
+            if (convention.bannedDependencies.contains(ga)) {
+                throw new GradleException("[team-convention] Banned dependency ${ga} requested by ${proj.path} (${cfg.name}). JUnit 4 and Log4j 1 are banned; use JUnit 5 and the logging the Spring Boot starter provides.")
+            }
+        }
+    }
+
+    def verifyBuildConstraints = proj.tasks.register('verifyBuildConstraints') {
+        group = 'verification'
+        description = 'Team convention: module version convergence and no SNAPSHOT dependencies in a release version.'
+        def projectVersion = proj.version.toString()
+        def projectPath = proj.path
+        // Every project that declares a version must declare the same one. A project without a version ('unspecified', Gradle's
+        // default) is left out: a multi-project build whose root has no build file, or whose root only hosts the subprojects, is fine.
+        def moduleVersions = rootProject.allprojects.findAll { it.version.toString() != 'unspecified' }.collectEntries { [(it.path): it.version.toString()] }
+        def classpaths = proj.configurations.matching { it.canBeResolved && it.name.endsWith('Classpath') }
+        inputs.property('version', projectVersion)
+        inputs.property('moduleVersions', moduleVersions)
+        doLast {
+            if (projectVersion != 'unspecified' && moduleVersions.values().toSet().size() > 1) {
+                throw new GradleException("[team-convention] module versions differ: ${moduleVersions}; all modules must converge on one version.")
+            }
+            if (!projectVersion.endsWith('-SNAPSHOT')) {
+                def snapshots = classpaths.collectMany { c ->
+                    c.incoming.resolutionResult.allComponents
+                        .findAll { it.id instanceof ModuleComponentIdentifier && it.moduleVersion?.version?.endsWith('-SNAPSHOT') }
+                        .collect { it.moduleVersion.toString() }
+                }.unique().sort()
+                if (snapshots) {
+                    throw new GradleException("[team-convention] Release version ${projectVersion} of ${projectPath} depends on SNAPSHOT artifacts: ${snapshots.join(', ')}")
+                }
+            }
+        }
+    }
+
+    // ============================================================
+    // 1. FORMATTING: Spotless with the Eclipse JDT profile. Spotless tasks are proper Gradle tasks whose inputs include
+    //    the profile file, so a profile change is never missed (the Maven plugin's index had to be disabled for that).
+    // ============================================================
+    proj.apply plugin: com.diffplug.gradle.spotless.SpotlessPlugin   // by class: a script plugin's own classpath cannot be applied by id
+    proj.spotless {
+        if (ratchetRef && ratchetRef != 'NONE') {
+            ratchetFrom ratchetRef
+        }
+    }
+    proj.plugins.withId('java') {
+        proj.spotless {
+            java {
+                target 'src/*/java/**/*.java'
+                eclipse(convention.eclipseJdtVersion).configFile(new File(configDir, 'eclipse-formatter.xml'))
+                importOrderFile(new File(configDir, 'eclipse.importorder'))
+                removeUnusedImports()
+                trimTrailingWhitespace()
+                endWithNewline()
+            }
+        }
+
+        // ============================================================
+        // 2. RULES: Checkstyle for what the formatter cannot decide. Layout checks are deliberately absent (see
+        //    .config/checkstyle.xml). The legacy suppressions file is optional and project-owned.
+        // ============================================================
+        proj.apply plugin: 'checkstyle'
+        proj.checkstyle {
+            toolVersion = convention.checkstyleVersion
+            configFile = new File(configDir, 'checkstyle.xml')
+            configProperties = [
+                'checkstyle.suppressions.file'       : new File(configDir, 'checkstyle-suppressions.xml').absolutePath,
+                'checkstyle.legacy.suppressions.file': new File(configDir, 'checkstyle-legacy-suppressions.xml').absolutePath,
+            ]
+            maxWarnings = 0          // the rules use severity=warning; any finding fails the build
+            showViolations = true    // one console line per violation, which the installer and humans both read
+        }
+        proj.tasks.named('check') { dependsOn verifyBuildConstraints }
+    }
+}
+
+// Markdown at the repository root follows the same 160-column convention as the documentation.
+rootProject.spotless {
+    flexmark {
+        target '*.md'
+        flexmark()
+        trimTrailingWhitespace()
+        endWithNewline()
+    }
+}
+
+// ============================================================
+// 3. GIT HOOKS: .githooks/ is activated on every build so nobody has to remember `git config core.hooksPath`.
+// ============================================================
+def hooksDir = rootProject.file('.githooks')
+if (rootProject.file('.git').exists() && hooksDir.isDirectory()) {
+    try {
+        def current = ['git', 'config', '--get', 'core.hooksPath'].execute(null as String[], rootDir).text.trim()
+        if (current != '.githooks') {
+            ['git', 'config', 'core.hooksPath', '.githooks'].execute(null as String[], rootDir).waitFor()
+            logger.lifecycle("[team-convention] git core.hooksPath set to .githooks")
+        }
+    } catch (ignored) {
+        logger.warn("[team-convention] git not available; hooks not activated")
+    }
+}

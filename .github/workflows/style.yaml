@@ -1,0 +1,20 @@
+name: Code style
+
+# Team code convention check (gradle/team-convention.gradle), shared by every Vempain Gradle repository.
+# The workflow lives in vempain-workflows; this file only calls it.
+
+on:
+  pull_request:
+  push:
+    branches: [ main ]
+
+# The optional autofix job (`autofix: true` below) needs `contents: write` and `pull-requests: write`.
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  style:
+    uses: Vempain/vempain-workflows/.github/workflows/gradle-code-style.yaml@main
+    secrets:
+      VEMPAIN_ACTION_TOKEN: ${{ secrets.VEMPAIN_ACTION_TOKEN }}
