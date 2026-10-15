@@ -4,6 +4,9 @@ plugins {
     id 'jacoco'
 }
 
+// Team code convention: Spotless with the shared Eclipse profile, Checkstyle, build constraints, git hooks.
+apply from: 'gradle/team-convention.gradle'
+
 group = 'fi.poltsi.vempain'
 version = libs.versions.release.get()
 

@@ -1,18 +1,21 @@
 package fi.poltsi.vempain.cli;
 
-import com.sun.net.httpserver.HttpExchange;
-import com.sun.net.httpserver.HttpServer;
-import org.json.JSONObject;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 
-import static org.junit.jupiter.api.Assertions.*;
+import org.json.JSONObject;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpServer;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class BackendClientUTC {
 
@@ -22,8 +25,10 @@ class BackendClientUTC {
     @BeforeEach
     void setUp() throws IOException {
         server = HttpServer.create(new InetSocketAddress(0), 0);
-        baseUrl = "http://localhost:" + server.getAddress()
-                .getPort() + "/api";
+        baseUrl = "http://localhost:"
+                + server.getAddress()
+                    .getPort()
+                + "/api";
         server.start();
     }
 
@@ -50,7 +55,8 @@ class BackendClientUTC {
         var response = client.getJsonFlexible(new SessionStore.Session(baseUrl, "abc"), "/content-management/galleries?details=FULL");
 
         assertTrue(response.has("items"));
-        assertEquals(1, response.getJSONArray("items").length());
+        assertEquals(1, response.getJSONArray("items")
+            .length());
     }
 
     @Test
@@ -61,7 +67,9 @@ class BackendClientUTC {
         var response = client.patchJson(new SessionStore.Session(baseUrl, "abc"), "/content-management/galleries/publish", new JSONObject().put("id", 1));
 
         assertTrue(response.has("items"));
-        assertEquals("OK", response.getJSONArray("items").getJSONObject(0).getString("result"));
+        assertEquals("OK", response.getJSONArray("items")
+            .getJSONObject(0)
+            .getString("result"));
     }
 
     @Test
@@ -79,10 +87,9 @@ class BackendClientUTC {
         register("/api/files/music/1", 404, "application/json", "{\"error\":\"not found\"}");
 
         var client = new BackendClient();
-        var exception = assertThrows(IOException.class,
-                () -> client.getJson(new SessionStore.Session(baseUrl, "abc"), "/files/music/1"));
+        var exception = assertThrows(IOException.class, () -> client.getJson(new SessionStore.Session(baseUrl, "abc"), "/files/music/1"));
         assertTrue(exception.getMessage()
-                .contains("HTTP 404"));
+            .contains("HTTP 404"));
     }
 
     @Test
@@ -101,7 +108,7 @@ class BackendClientUTC {
         var client = new BackendClient();
         var exception = assertThrows(IOException.class, () -> client.login(baseUrl, "user", "pass".toCharArray()));
         assertTrue(exception.getMessage()
-                .contains("empty"));
+            .contains("empty"));
     }
 
     @Test
@@ -117,7 +124,7 @@ class BackendClientUTC {
         var bytes = body.getBytes(StandardCharsets.UTF_8);
         server.createContext(path, (HttpExchange exchange) -> {
             exchange.getResponseHeaders()
-                    .set("Content-Type", contentType);
+                .set("Content-Type", contentType);
             exchange.sendResponseHeaders(code, bytes.length);
             try (OutputStream os = exchange.getResponseBody()) {
                 os.write(bytes);
@@ -125,5 +132,3 @@ class BackendClientUTC {
         });
     }
 }
-
-

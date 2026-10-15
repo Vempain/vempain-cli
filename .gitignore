@@ -1,6 +1,17 @@
-.idea/
+# .idea/   (disabled by the team code convention: shared IDE files are tracked)
 .gradle/
 build/
 out/
 *.iml
 
+# --- team code convention: keep the shared IDE files, ignore the rest (managed by apply-convention.py) ---
+.idea/*
+!.idea/eclipseCodeFormatter.xml
+!.idea/externalDependencies.xml
+!.idea/checkstyle-idea.xml
+!.idea/codeStyles/
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+.cursor/
+# --- end team code convention ---

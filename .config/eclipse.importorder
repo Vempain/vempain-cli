@@ -1,0 +1,9 @@
+#Organize Import Order (Eclipse format, consumed by Spotless importOrder and the IDE plugins)
+#Groups in order; blank line between groups. Static imports last.
+0=java
+1=javax
+2=jakarta
+3=org
+4=com
+5=
+6=\#

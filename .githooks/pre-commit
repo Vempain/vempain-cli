@@ -1,0 +1,27 @@
+#!/usr/bin/env sh
+# Pre-commit hook: format staged Java/Markdown files with the SAME formatter the build uses, then re-stage them.
+# Makes the developer's IDE irrelevant to what lands in the repo.
+#
+# Activated automatically by gradle/team-convention.gradle on any build (sets core.hooksPath=.githooks).
+# Manual install: git config core.hooksPath .githooks
+# Skip once:      git commit --no-verify
+# Requires the Gradle wrapper (./gradlew) in the repository root.
+set -eu
+
+STAGED=$(git diff --cached --name-only --diff-filter=ACMR -- '*.java' '*.md' || true)
+[ -z "$STAGED" ] && exit 0
+
+[ -x ./gradlew ] || { echo "[pre-commit] ./gradlew not found; the convention requires the Gradle wrapper" >&2; exit 1; }
+
+echo "[pre-commit] spotlessApply on staged files..."
+# Spotless's IDE hook formats exactly one file per invocation and writes it in place; the Gradle daemon keeps this fast.
+# (Do not pass spotlessIdeHookUseStdOut, not even as "false": Spotless checks the property's presence, and stdout mode
+# would print the formatted text instead of writing the file.)
+for FILE in $STAGED; do
+  ./gradlew -q spotlessApply "-PspotlessIdeHook=$(pwd)/$FILE" >/dev/null 2>&1 || { echo "[pre-commit] formatting $FILE failed" >&2; exit 1; }
+done
+
+# Re-stage whatever the formatter touched (only files that were already staged)
+printf '%s\n' "$STAGED" | xargs git add --
+
+echo "[pre-commit] done."

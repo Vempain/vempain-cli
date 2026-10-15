@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- IntelliJ shows a "required plugins" banner on project open until these are installed. -->
+<project version="4">
+  <component name="ExternalDependencies">
+    <plugin id="EclipseCodeFormatter" />
+    <plugin id="CheckStyle-IDEA" />
+    <plugin id="org.editorconfig.editorconfigjetbrains" />
+  </component>
+</project>
