@@ -4,7 +4,7 @@
   "https://checkstyle.org/dtds/suppressions_1_2.dtd">
 <suppressions>
   <!-- Tests may be long and deeply nested; relax structural limits there -->
-  <suppress checks="MethodLength|CyclomaticComplexity|JavadocMethod" files="[\\/]src[\\/]test[\\/]"/>
+  <suppress checks="MethodLength|CyclomaticComplexity|JavadocMethod|MethodName|LineLength|IllegalCatch" files="[\\/]src[\\/]test[\\/]"/>
   <!-- Generated sources are never hand-formatted -->
   <suppress checks=".*" files="[\\/]target[\\/]generated-sources[\\/]"/>
 </suppressions>
