@@ -31,6 +31,7 @@ import fi.poltsi.vempain.cli.admin.AdminCommands;
 import fi.poltsi.vempain.cli.core.BackendVersionValidator;
 import fi.poltsi.vempain.cli.core.CommandHistory;
 import fi.poltsi.vempain.cli.core.HttpTransport;
+import fi.poltsi.vempain.cli.core.LocalPathCompleter;
 import fi.poltsi.vempain.cli.core.PasswordReader;
 import fi.poltsi.vempain.cli.core.SessionStore;
 import fi.poltsi.vempain.cli.core.TaskClient;
@@ -46,6 +47,11 @@ public class CommandRouter {
 
     private static final Map<String, List<String>> COMMAND_OPTIONS = commandOptions();
 
+    /**
+     * The options whose value names a file of the local filesystem; their values are completed from the filesystem in both shells.
+     */
+    private static final Map<String, List<String>> LOCAL_PATH_OPTIONS = Map.of("publish-files", List.of("--ids-file"));
+
     private static final Duration TASK_POLL_INTERVAL = Duration.ofSeconds(2);
 
     private final SessionStore sessionStore;
@@ -57,6 +63,7 @@ public class CommandRouter {
     private final TaskCommands taskCommands;
     private final PasswordReader passwordReader;
     private final CommandHistory commandHistory;
+    private final LocalPathCompleter localPathCompleter = new LocalPathCompleter();
 
     private boolean shellMode;
 
@@ -582,6 +589,12 @@ public class CommandRouter {
 
             completeCommandOptions(command, words, line.wordIndex(), currentWord, candidates);
 
+            if (wantsLocalPathCompletion(command, words, line.wordIndex(), currentWord)) {
+                localPathCompleter.complete(currentWord, candidates);
+                debugCandidates(currentWord, candidates);
+                return;
+            }
+
             if (("files-list".equals(command)
                  || "file-show".equals(command))
                 && wantsTypeCompletion(words, line.wordIndex())) {
@@ -722,6 +735,20 @@ public class CommandRouter {
                     candidates.add(new Candidate(option));
                 }
             }
+        }
+
+        /**
+         * The value of an option listed in {@link #LOCAL_PATH_OPTIONS} is being typed; a word starting with a dash is taken for an option instead.
+         */
+        private boolean wantsLocalPathCompletion(String command, List<String> words, int wordIndex, String currentWord) {
+            var pathOptions = LOCAL_PATH_OPTIONS.get(command);
+            if (pathOptions == null
+                || wordIndex <= 0
+                || wordIndex > words.size()
+                || currentWord.startsWith("-")) {
+                return false;
+            }
+            return pathOptions.contains(words.get(wordIndex - 1));
         }
 
         private boolean wantsTypeCompletion(List<String> words, int wordIndex) {

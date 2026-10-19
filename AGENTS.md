@@ -10,22 +10,26 @@ and sessions live under `~/.config/vempain-file-cli/`. Do not rename these witho
 
 ## Repository layout
 
-| Path                                         | Purpose                                                                              |
-|----------------------------------------------|--------------------------------------------------------------------------------------|
-| `src/main/java/fi/poltsi/vempain/cli/`       | `VempainFileCliApplication` (entry point) and `CommandRouter` (JCommander)           |
-| `src/main/java/fi/poltsi/vempain/cli/core/`  | `HttpTransport`, `SessionStore`, `OutputFormatter`, `PasswordReader`, `CliException` |
-| `src/main/java/fi/poltsi/vempain/cli/file/`  | File-backend commands (`FileCommands`)                                               |
-| `src/main/java/fi/poltsi/vempain/cli/admin/` | Admin-backend commands (`AdminCommands`)                                             |
-| `src/main/java/fi/poltsi/vempain/cli/task/`  | Task commands (`TaskCommands`: list, monitor, cancel)                                |
-| `src/main/java/fi/poltsi/vempain/cli/tui/`   | Lanterna TUI of `shell` (`TuiShell`, `TaskBoard`, `TuiTaskMonitor`)                  |
-| `src/test/java/fi/poltsi/vempain/cli/`       | `*UTC` tests driven by an in-process JDK `HttpServer` stub                           |
-| `packaging/rpm/vempain-file-cli.spec`        | RPM spec consumed by the reusable `rpm-cli-package.yaml` workflow                    |
-| `vf-cli`                                     | Shell wrapper installed by the RPM as `/usr/bin/vf-cli`                              |
+|                     Path                     |                                                  Purpose                                                   |
+|----------------------------------------------|------------------------------------------------------------------------------------------------------------|
+| `src/main/java/fi/poltsi/vempain/cli/`       | `VempainFileCliApplication` (entry point) and `CommandRouter` (JCommander)                                 |
+| `src/main/java/fi/poltsi/vempain/cli/core/`  | `HttpTransport`, `SessionStore`, `OutputFormatter`, `PasswordReader`, `CliException`, `LocalPathCompleter` |
+| `src/main/java/fi/poltsi/vempain/cli/file/`  | File-backend commands (`FileCommands`)                                                                     |
+| `src/main/java/fi/poltsi/vempain/cli/admin/` | Admin-backend commands (`AdminCommands`)                                                                   |
+| `src/main/java/fi/poltsi/vempain/cli/task/`  | Task commands (`TaskCommands`: list, monitor, cancel)                                                      |
+| `src/main/java/fi/poltsi/vempain/cli/tui/`   | Lanterna TUI of `shell` (`TuiShell`, `TaskBoard`, `TuiTaskMonitor`)                                        |
+| `src/test/java/fi/poltsi/vempain/cli/`       | `*UTC` tests driven by an in-process JDK `HttpServer` stub                                                 |
+| `packaging/rpm/vempain-file-cli.spec`        | RPM spec consumed by the reusable `rpm-cli-package.yaml` workflow                                          |
+| `vf-cli`                                     | Shell wrapper installed by the RPM as `/usr/bin/vf-cli`                                                    |
 
 ## Main components
 
 - `CommandRouter` registers commands, parses arguments with JCommander, drives the interactive shell and tab completion, and delegates to
-  `FileCommands` / `AdminCommands`.
+  `FileCommands` / `AdminCommands`. Tab completion is one `CliCompleter` shared by the line shell and the TUI: command names and options,
+  file types, backend path completion for `scan` (`FileCommands.completeScanPath`, a `POST /path-completion`) and local filesystem completion
+  for the options listed in `CommandRouter.LOCAL_PATH_OPTIONS` (`core.LocalPathCompleter`: keeps the typed directory part, `~` is the home
+  directory, directories are open candidates ending in `/`). Add a new option that names a local file to that map. The TUI quotes a completed
+  word containing whitespace because `splitArgs` only understands quotes, not backslash escapes.
 - `shell` opens the full-screen Lanterna TUI (`tui.TuiShell`) when stdin/stdout are a terminal, otherwise the line based JLine shell. The TUI
   shows the session window (upper left: login state per backend) and the running tasks window (upper right: `tui.TaskBoard` polls
   `GET /tasks` of every logged-in backend and keeps the unfinished tasks) above the output window and command line. Commands typed there run
@@ -62,7 +66,8 @@ in `~/.gradle/gradle.properties` for GitHub Packages.
 
 ## Conventions to preserve
 
-- Java is tab-indented with a 160-character line limit (`.editorconfig`, shared with the other Vempain Java repos); do not mass-reformat.
+- Java is indented with 4 spaces and has a 160-character line limit (`.editorconfig` and `.config/eclipse-formatter.xml`, shared with the other
+  Vempain Java repos); do not mass-reformat.
 - Lombok is not a dependency here because the code base has almost no accessor/constructor boilerplate (`SessionStore.Session` is a record). If
   boilerplate grows, add the `io.freefair.lombok` plugin as in the backends instead of hand-writing it.
 - Keep command classes thin: argument parsing in the command classes, reusable HTTP/session/output behaviour in `core`.
