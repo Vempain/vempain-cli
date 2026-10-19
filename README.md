@@ -25,11 +25,13 @@ Current implementation supports both Vempain File and Vempain Admin backend APIs
   - `admin publish-group --id <id>`
   - `admin publish-groups --ids <id1,id2,...>`
 - Full-screen interactive shell (`vf-cli shell`, Lanterna TUI):
-    - session window in the upper left corner: login state and base URL of the file and admin backends, and the active backend
-    - running tasks window in the upper right corner: the queued/running/cancelling background tasks of every logged-in backend,
-      refreshed every 2 seconds and right after each command (so it fills as soon as you log in)
-    - output window and command line below them; the password of `login` is asked in a masked dialog (Esc cancels)
-    - tab completion: command names and options, file types in lowercase, backend path completion for scan directories
+  - session window in the upper left corner: login state and base URL of the file and admin backends, and the active backend
+  - running tasks window in the upper right corner: the queued/running/cancelling background tasks of every logged-in backend,
+    refreshed every 2 seconds and right after each command (so it fills as soon as you log in)
+  - output window and command line below them; the password of `login` is asked in a masked dialog (Esc cancels)
+  - tab completion: command names and options, file types in lowercase, backend path completion for scan directories, and local filesystem
+    completion for options that name a local file (`publish-files --ids-file`: relative to the working directory, absolute, or `~/...`;
+    directories stay open for further completion and a completed name containing spaces is quoted)
     - shell commands appended to `~/.vempain/history` as `<datetime>\t<command>`, using `YYYY-MM-DDThh:mm:ss`; previous commands are available with the
       Up/Down keys in later shell sessions; PgUp/PgDn scroll the output (the view stays put while scrolled back and follows new output again
       once PgDn reaches the end); `exit`, `quit` or Ctrl+D on an empty line leave the shell

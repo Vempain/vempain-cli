@@ -595,6 +595,65 @@ class TuiShellUTC {
         assertNull(shellFailure.get());
     }
 
+    /**
+     * Path candidates replace the whole word, directories stay open (no space after them) and the listing shows the display names; a completed name with a
+     * space is quoted so that the command line splits it as one argument.
+     */
+    @Test
+    void tui_tabCompletionOfPathsKeepsDirectoriesOpenListsNamesAndQuotesSpaces() throws Exception {
+        var lines = Collections.synchronizedList(new ArrayList<String>());
+        Completer completer = (reader, line, candidates) -> {
+            var word = line.word();
+            if ("d".equals(word)) {
+                candidates.add(new Candidate("docs/", "docs/", null, null, null, null, false));
+            } else if ("docs/".equals(word)) {
+                candidates.add(new Candidate("docs/a.txt", "a.txt", null, null, null, null, true));
+                candidates.add(new Candidate("docs/b.txt", "b.txt", null, null, null, null, true));
+                candidates.add(new Candidate("docs/batch one.txt", "batch one.txt", null, null, null, null, true));
+            } else if ("docs/a".equals(word)) {
+                candidates.add(new Candidate("docs/a.txt", "a.txt", null, null, null, null, true));
+            } else if (word.startsWith("docs/ba")) {
+                candidates.add(new Candidate("docs/batch one.txt", "batch one.txt", null, null, null, null, true));
+            } else if (word.startsWith("docs/b")) {
+                candidates.add(new Candidate("docs/b.txt", "b.txt", null, null, null, null, true));
+                candidates.add(new Candidate("docs/batch one.txt", "batch one.txt", null, null, null, null, true));
+            }
+        };
+        startTui(tui(new SessionStore()), line -> {
+            lines.add(line);
+            return !"exit".equals(line);
+        }, () -> "p> ", completer);
+        awaitScreen(screen -> shows(screen, "p> "));
+
+        type("d");
+        press(KeyType.Tab);
+        press(KeyType.Tab);
+        awaitScreen(screen -> shows(screen, "a.txt  b.txt  batch one.txt"));
+        type("a");
+        press(KeyType.Tab);
+        press(KeyType.Enter);
+        awaitScreen(screen -> shows(screen, "p> docs/a.txt"));
+
+        // The name with a space is quoted when it is filled in, and the quotes are kept while typing inside them
+        type("docs/ba");
+        press(KeyType.Tab);
+        press(KeyType.Enter);
+        awaitScreen(screen -> shows(screen, "p> \"docs/batch one.txt\""));
+        type("\"docs/ba");
+        press(KeyType.Tab);
+        press(KeyType.Enter);
+        type("docs/b");
+        press(KeyType.Tab);
+        awaitScreen(screen -> shows(screen, "b.txt  batch one.txt"));
+        press(KeyType.Backspace, 6);
+
+        type("exit");
+        press(KeyType.Enter);
+        shellThread.join(TIMEOUT.toMillis());
+        assertEquals(List.of("docs/a.txt", "\"docs/batch one.txt\"", "\"docs/batch one.txt\"", "exit"), lines);
+        assertNull(shellFailure.get());
+    }
+
     @Test
     void tui_withoutCompleterTabDoesNothingAndCtrlDOnAnEmptyLineExits() throws Exception {
         var lines = Collections.synchronizedList(new ArrayList<String>());

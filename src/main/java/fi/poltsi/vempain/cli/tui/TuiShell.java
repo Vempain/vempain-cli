@@ -17,6 +17,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 import org.jline.reader.Candidate;
 import org.jline.reader.Completer;
@@ -322,17 +323,34 @@ public class TuiShell {
                 var match = matches.values()
                     .iterator()
                     .next();
-                setInput(head + match.value() + (match.complete() ? " " : ""));
+                setInput(head + quoted(head, match.value(), match.complete()) + (match.complete() ? " " : ""));
                 return;
             }
             var common = commonPrefix(List.copyOf(matches.keySet()));
             if (common.length() > word.length()) {
-                setInput(head + common);
+                setInput(head + quoted(head, common, false));
             }
-            appendOutput(String.join("  ", matches.keySet()));
+            appendOutput(matches.values()
+                .stream()
+                .map(Candidate::displ)
+                .collect(Collectors.joining("  ")));
         } catch (RuntimeException e) {
             appendOutput("Completion failed: " + e.getMessage());
         }
+    }
+
+    /**
+     * A completed word containing whitespace (a local file name, for instance) is put in double quotes, because the command line is split on whitespace outside
+     * quotes. A word the user already opened with a quote keeps it; the closing quote is added once the word is complete.
+     */
+    private static String quoted(String head, String value, boolean complete) {
+        var opened = head.endsWith("\"");
+        if (!opened
+            && value.chars()
+                .noneMatch(Character::isWhitespace)) {
+            return value;
+        }
+        return (opened ? "" : "\"") + value + (complete ? "\"" : "");
     }
 
     private void recall(int step) {

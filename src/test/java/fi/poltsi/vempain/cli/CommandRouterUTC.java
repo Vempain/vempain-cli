@@ -198,6 +198,29 @@ class CommandRouterUTC {
     }
 
     @Test
+    void completer_completesLocalFilePathsForTheIdsFileOption() throws Exception {
+        Files.writeString(tempHome.resolve("ids.txt"), "42\n");
+        Files.writeString(tempHome.resolve("ids-old.txt"), "17\n");
+        Files.createDirectories(tempHome.resolve("inbox"));
+        Files.writeString(tempHome.resolve(".hidden"), "");
+        var completer = completer();
+        var prefix = tempHome + "/";
+
+        assertEquals(Set.of(prefix + "ids.txt", prefix + "ids-old.txt"),
+                complete(completer, List.of("publish-files", "--ids-file", prefix + "id"), 2, prefix + "id"));
+        assertEquals(Set.of(prefix + "ids.txt", prefix + "ids-old.txt", prefix + "inbox/"),
+                complete(completer, List.of("publish-files", "--ids-file", prefix), 2, prefix), "hidden entries are not offered");
+        // The router resolves ~ against user.home, which points at the temporary directory in these tests
+        assertEquals(Set.of("~/ids.txt", "~/ids-old.txt"), complete(completer, List.of("publish-files", "--ids-file", "~/id"), 2, "~/id"));
+        assertEquals(Set.of("--ids-file", "--monitor"), complete(completer, List.of("publish-files", "--ids-file", "-"), 2, "-"),
+                "a dash asks for the options, not for a file");
+        assertEquals(Set.of(), complete(completer, List.of("publish-files", "--monitor", prefix), 2, prefix), "only the file options take a path");
+        assertEquals(Set.of(), complete(completer, List.of("publish-files", "--ids-file", prefix + "ids.txt", prefix), 3, prefix),
+                "after the file value no path is completed");
+        assertEquals(Set.of(), complete(completer, List.of("scan", "--ids-file", prefix), 2, prefix), "other commands have no local file options");
+    }
+
+    @Test
     void completer_toleratesMissingWordsAndOddCursorPositions() {
         var completer = completer();
 
