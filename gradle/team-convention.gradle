@@ -143,12 +143,21 @@ rootProject.spotless {
 // ============================================================
 // 3. GIT HOOKS: .githooks/ is activated on every build so nobody has to remember `git config core.hooksPath`.
 // ============================================================
+// The processes run through ProviderFactory.exec: a plain Process started while configuring is deprecated in Gradle 9
+// and an error in Gradle 11, and the provider form is also what the configuration cache expects.
 def hooksDir = rootProject.file('.githooks')
 if (rootProject.file('.git').exists() && hooksDir.isDirectory()) {
     try {
-        def current = ['git', 'config', '--get', 'core.hooksPath'].execute(null as String[], rootDir).text.trim()
+        def current = providers.exec {
+            commandLine 'git', 'config', '--get', 'core.hooksPath'
+            workingDir = rootDir
+            ignoreExitValue = true   // exit code 1 when the key is not set yet
+        }.standardOutput.asText.get().trim()
         if (current != '.githooks') {
-            ['git', 'config', 'core.hooksPath', '.githooks'].execute(null as String[], rootDir).waitFor()
+            providers.exec {
+                commandLine 'git', 'config', 'core.hooksPath', '.githooks'
+                workingDir = rootDir
+            }.result.get()
             logger.lifecycle("[team-convention] git core.hooksPath set to .githooks")
         }
     } catch (ignored) {
