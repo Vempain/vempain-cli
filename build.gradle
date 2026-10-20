@@ -42,6 +42,11 @@ repositories {
     }
 }
 
+// Report deprecated API use and unchecked operations with their location instead of javac's "recompile with -Xlint" note
+tasks.withType(JavaCompile).configureEach {
+    options.compilerArgs += ['-Xlint:deprecation', '-Xlint:unchecked']
+}
+
 dependencies {
     // Add Vempain API package dependencies when backend-specific typed DTO usage is enabled.
     // implementation "fi.poltsi.vempain:vempain-auth-core:${libs.versions.vempain.auth.get()}"
