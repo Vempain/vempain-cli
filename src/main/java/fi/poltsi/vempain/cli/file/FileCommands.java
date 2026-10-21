@@ -136,6 +136,64 @@ public class FileCommands {
         monitor(response, session, command.monitor);
     }
 
+    /**
+     * Shows whether a file or a file group was published to the admin backend before (GET /publish/file/{id}/status, GET /publish/file-group/{id}/status): the
+     * site file or gallery it became, the site files of the gallery and the admin users and units the previous publish granted privileges to.
+     */
+    public void publishStatus(PublishStatusCommand command) throws Exception {
+        if ((command.fileId == null) == (command.fileGroupId == null)) {
+            throw new IllegalArgumentException("Give exactly one of --file-id and --file-group-id");
+        }
+        var session = requireSession();
+
+        if (command.fileId != null) {
+            var status = transport.getJson(session, "/publish/file/" + command.fileId + "/status");
+            if (command.raw) {
+                out.println(status.toString(2));
+                return;
+            }
+            if (!status.optBoolean("published", false)) {
+                out.printf("File %d has not been published to Vempain Admin.%n", command.fileId);
+                return;
+            }
+            out.printf("File %d is published as site file %d.%n", command.fileId, status.optLong("site_file_id", 0L));
+            printGrantees(status.optJSONArray("acls"));
+            return;
+        }
+
+        var status = transport.getJson(session, "/publish/file-group/" + command.fileGroupId + "/status");
+        if (command.raw) {
+            out.println(status.toString(2));
+            return;
+        }
+        if (!status.optBoolean("published", false)) {
+            out.printf("File group %d has not been published to Vempain Admin.%n", command.fileGroupId);
+            return;
+        }
+        var siteFileIds = status.optJSONArray("site_file_ids");
+        out.printf("File group %d is published as gallery %d (%s) with %d site files%s%n", command.fileGroupId, status.optLong("gallery_id", 0L),
+                status.optString("gallery_name", ""), siteFileIds == null ? 0 : siteFileIds.length(), siteFileIds == null
+                                                                                                      || siteFileIds.isEmpty() ? "."
+                                                                                                              : ": " + siteFileIds.join(", "));
+        printGrantees(status.optJSONArray("acls"));
+    }
+
+    private void printGrantees(JSONArray acls) {
+        if (acls == null
+            || acls.isEmpty()) {
+            out.println("No additional admin users or units hold privileges on it.");
+            return;
+        }
+        out.printf("%-8s %-8s %-6s %-6s %-6s %-6s%n", "user_id", "unit_id", "read", "create", "modify", "delete");
+        out.println("-".repeat(46));
+        for (int i = 0; i < acls.length(); i++) {
+            var acl = acls.getJSONObject(i);
+            out.printf("%-8s %-8s %-6b %-6b %-6b %-6b%n", acl.isNull("user_id") ? "-" : acl.optString("user_id"),
+                    acl.isNull("unit_id") ? "-" : acl.optString("unit_id"), acl.optBoolean("read_privilege"), acl.optBoolean("create_privilege"),
+                    acl.optBoolean("modify_privilege"), acl.optBoolean("delete_privilege"));
+        }
+    }
+
     public void publishFiles(PublishFilesCommand command) throws Exception {
         var session = requireSession();
         var ids = new LinkedHashSet<Long>();
@@ -590,6 +648,17 @@ public class FileCommands {
         public String timeSeriesName;
         @Parameter(names = "--monitor", description = "Open the full-screen task monitor after submission")
         public boolean monitor;
+    }
+
+    @Parameters(commandDescription = "Show whether a file or file group was published to Vempain Admin before and who was granted access by that publish")
+    public static class PublishStatusCommand {
+
+        @Parameter(names = { "--file-id" }, description = "File ID (exactly one of --file-id and --file-group-id)")
+        public Long fileId;
+        @Parameter(names = { "--file-group-id" }, description = "File group ID (exactly one of --file-id and --file-group-id)")
+        public Long fileGroupId;
+        @Parameter(names = { "--raw" }, description = "Print the JSON answer of the file backend")
+        public boolean raw;
     }
 
     @Parameters(commandDescription = "Publish files listed in a UTF-8 file, one file ID per line")

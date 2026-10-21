@@ -691,6 +691,7 @@ class CliIntegrationUTC {
         assertEquals(Set.of("--monitor"), optionValues(completer, "publish-music"));
         assertEquals(Set.of("--file-group-id", "--time-series-name", "--monitor"), optionValues(completer, "publish-gps"));
         assertEquals(Set.of("--ids-file", "--monitor"), optionValues(completer, "publish-files"));
+        assertEquals(Set.of("--file-id", "--file-group-id", "--raw"), optionValues(completer, "publish-status"));
         assertEquals(Set.of("-o", "--original-directory", "-e", "--export-directory", "--monitor"), optionValues(completer, "scan"));
         assertEquals(Set.of("--tag", "--to", "--name-de", "--name-en", "--name-es", "--name-fi", "--name-sv", "--monitor"),
                 optionValues(completer, "tag-rename"));
@@ -1223,6 +1224,65 @@ class CliIntegrationUTC {
             var output = outBytes.toString(StandardCharsets.UTF_8);
             assertTrue(output.contains("Could not look up the current translations of tag 'old'"), output);
             assertTrue(output.contains("Submitted rename of tag 'old' to 'new'."), "the rename is still sent");
+        }
+    }
+
+    @Test
+    void publishStatus_printsThePublicationStateOfFilesAndGroups() throws Exception {
+        try (var server = new MockApiServer()) {
+            server.registerJson("/api/publish/file/55/status", "{\"file_id\":55,\"published\":true,\"site_file_id\":500,\"acls\":["
+                    + "{\"user_id\":12,\"unit_id\":null,\"read_privilege\":true,\"create_privilege\":false,\"modify_privilege\":true,\"delete_privilege\":false},"
+                    + "{\"user_id\":null,\"unit_id\":3,\"read_privilege\":true,\"create_privilege\":false,\"modify_privilege\":false,\"delete_privilege\":false}]}");
+            server.registerJson("/api/publish/file/56/status", "{\"file_id\":56,\"published\":false,\"site_file_id\":null,\"acls\":[]}");
+            server.registerJson("/api/publish/file-group/11/status",
+                    "{\"file_group_id\":11,\"published\":true,\"gallery_id\":1001," + "\"gallery_name\":\"Summer\",\"site_file_ids\":[500,501],\"acls\":[]}");
+            server.registerJson("/api/publish/file-group/12/status",
+                    "{\"file_group_id\":12,\"published\":false,\"gallery_id\":null," + "\"gallery_name\":null,\"site_file_ids\":[],\"acls\":[]}");
+
+            var sessionStore = new SessionStore();
+            sessionStore.save(server.baseUrl(), "jwt-status");
+            var outBytes = new ByteArrayOutputStream();
+            var errBytes = new ByteArrayOutputStream();
+            var app = new VempainFileCliApplication(sessionStore, new HttpTransport(), new PrintStream(outBytes), new PrintStream(errBytes));
+
+            app.run(new String[]{ "publish-status", "--file-id", "55" });
+            var published = outBytes.toString(StandardCharsets.UTF_8);
+            assertTrue(published.contains("File 55 is published as site file 500."), published);
+            assertTrue(published.contains("12       -        true   false  true   false"), published);
+            assertTrue(published.contains("-        3        true   false  false  false"), published);
+
+            outBytes.reset();
+            app.run(new String[]{ "publish-status", "--file-id", "56" });
+            assertTrue(outBytes.toString(StandardCharsets.UTF_8)
+                .contains("File 56 has not been published to Vempain Admin."));
+
+            outBytes.reset();
+            app.run(new String[]{ "publish-status", "--file-group-id", "11" });
+            var group = outBytes.toString(StandardCharsets.UTF_8);
+            assertTrue(group.contains("File group 11 is published as gallery 1001 (Summer) with 2 site files: 500, 501"), group);
+            assertTrue(group.contains("No additional admin users or units hold privileges on it."), group);
+
+            outBytes.reset();
+            app.run(new String[]{ "publish-status", "--file-group-id", "12" });
+            assertTrue(outBytes.toString(StandardCharsets.UTF_8)
+                .contains("File group 12 has not been published to Vempain Admin."));
+
+            outBytes.reset();
+            app.run(new String[]{ "publish-status", "--file-group-id", "11", "--raw" });
+            assertTrue(outBytes.toString(StandardCharsets.UTF_8)
+                .contains("\"gallery_name\": \"Summer\""));
+            outBytes.reset();
+            app.run(new String[]{ "publish-status", "--file-id", "55", "--raw" });
+            assertTrue(outBytes.toString(StandardCharsets.UTF_8)
+                .contains("\"site_file_id\": 500"));
+
+            // Exactly one of the two IDs
+            app.run(new String[]{ "publish-status" });
+            app.run(new String[]{ "publish-status", "--file-id", "55", "--file-group-id", "11" });
+            var errors = errBytes.toString(StandardCharsets.UTF_8);
+            assertEquals(2, errors.split("Give exactly one of --file-id and --file-group-id", -1).length - 1, errors);
+            assertEquals(6, server.requests()
+                .size(), "the rejected invocations made no request");
         }
     }
 

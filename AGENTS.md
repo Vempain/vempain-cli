@@ -38,7 +38,9 @@ and sessions live under `~/.config/vempain-file-cli/`. Do not rename these witho
   command thread and the task poller on another, and they touch components only through `invokeLater`/`invokeAndWait`.
 - `file.FileCommands` also carries the file backend's rewrite-across-all-files commands: `tag-rename` (`POST /tags/all/rename`, after a
   `POST /tags/paged` lookup so the current translations are resent, because the backend clears the ones a request omits), `tag-replace`
-  (`POST /tags/all/replace`) and `metadata-update` (`POST /metadata/value`, `--remove` sends an empty `new_value`). All three answer `202`
+  (`POST /tags/all/replace`) and `metadata-update` (`POST /metadata/value`, `--remove` sends an empty `new_value`); `publish-status`
+  (`GET /publish/file/{id}/status` or `GET /publish/file-group/{id}/status`, exactly one of `--file-id`/`--file-group-id`, `--raw` for the
+  JSON) prints what an earlier publish created and the grantees it added, without starting anything. The three rewrites answer `202`
   with a task; like `scan` and the publish commands they take `--monitor` and are followed in the TUI's running tasks window in shell mode.
   Argument validation happens before any request (`CliIntegrationUTC`).
 - `core.HttpTransport` is the only HTTP client: login, JSON endpoints (`getJson`, `postJson`, `patchJson`) and byte content. Tests instantiate it directly.

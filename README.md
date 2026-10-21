@@ -15,6 +15,8 @@ Current implementation supports both Vempain File and Vempain Admin backend APIs
 - `file-show` supports `--raw` and `--content-limit <n>`
 - Data publish commands (music + gps-time-series)
 - Bulk file publishing from a UTF-8 file of file IDs (`publish-files --ids-file`)
+- Publication state of a file or file group (`publish-status --file-id <id>` or `--file-group-id <id>`): the site file or gallery an earlier
+  publish created, the site files of the gallery and the admin users and units that publish granted access to (`--raw` prints the JSON)
 - Scan command for original/export directories
 - Tag and metadata rewrites across all files, as background tasks of the file backend: `tag-rename --tag <name> --to <new-name>` (keeps the
   current translations unless `--name-de|en|es|fi|sv` replace them), `tag-replace --tag <name> --with <existing-tag>` and
