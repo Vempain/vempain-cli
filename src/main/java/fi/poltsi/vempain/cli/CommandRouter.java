@@ -42,8 +42,9 @@ import fi.poltsi.vempain.cli.tui.TuiShell;
 
 public class CommandRouter {
 
-    private static final List<String> BASE_COMMANDS = List.of("login", "files-list", "file-show", "publish-music", "publish-gps", "publish-files", "scan",
-            "tag-rename", "tag-replace", "metadata-update", "admin", "tasks", "task-monitor", "task-cancel", "session", "logout", "shell", "exit", "quit");
+    private static final List<String> BASE_COMMANDS = List.of("login", "files-list", "file-show", "publish-music", "publish-gps", "publish-files",
+            "publish-status", "scan", "tag-rename", "tag-replace", "metadata-update", "admin", "tasks", "task-monitor", "task-cancel", "session", "logout",
+            "shell", "exit", "quit");
 
     private static final Map<String, List<String>> COMMAND_OPTIONS = commandOptions();
 
@@ -103,6 +104,7 @@ public class CommandRouter {
         options.put("publish-music", List.of("--monitor"));
         options.put("publish-gps", List.of("--file-group-id", "--time-series-name", "--monitor"));
         options.put("publish-files", List.of("--ids-file", "--monitor"));
+        options.put("publish-status", List.of("--file-id", "--file-group-id", "--raw"));
         options.put("scan", List.of("-o", "--original-directory", "-e", "--export-directory", "--monitor"));
         options.put("tag-rename", List.of("--tag", "--to", "--name-de", "--name-en", "--name-es", "--name-fi", "--name-sv", "--monitor"));
         options.put("tag-replace", List.of("--tag", "--with", "--monitor"));
@@ -127,6 +129,7 @@ public class CommandRouter {
         var publishMusic = new PublishMusicCommand();
         var publishGps = new FileCommands.PublishGpsCommand();
         var publishFiles = new FileCommands.PublishFilesCommand();
+        var publishStatus = new FileCommands.PublishStatusCommand();
         var scan = new FileCommands.ScanCommand();
         var tagRename = new FileCommands.TagRenameCommand();
         var tagReplace = new FileCommands.TagReplaceCommand();
@@ -159,6 +162,7 @@ public class CommandRouter {
             .addCommand("publish-music", publishMusic)
             .addCommand("publish-gps", publishGps)
             .addCommand("publish-files", publishFiles)
+            .addCommand("publish-status", publishStatus)
             .addCommand("scan", scan)
             .addCommand("tag-rename", tagRename)
             .addCommand("tag-replace", tagReplace)
@@ -226,6 +230,7 @@ public class CommandRouter {
                     publishFiles.monitor |= shellMode;
                     fileCommands.publishFiles(publishFiles);
                 }
+                case "publish-status" -> fileCommands.publishStatus(publishStatus);
                 case "scan" -> {
                     scan.monitor |= shellMode;
                     fileCommands.scan(scan);
