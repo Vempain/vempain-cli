@@ -23,7 +23,7 @@ Current implementation supports both Vempain File and Vempain Admin backend APIs
   `metadata-update --group <group> --key <key> --value <current> --new-value <new>` (`--remove` deletes the entry from the files)
 - Background task listing, cancellation, and a Lanterna full-screen task monitor
 - Admin group (gallery) commands:
-  - `admin list-groups`
+  - `admin list-groups` (`--modified-after-publish` lists only the galleries modified after their last release to the website)
   - `admin publish-group --id <id>`
   - `admin publish-groups --ids <id1,id2,...>`
 - Full-screen interactive shell (`vf-cli shell`, Lanterna TUI):
@@ -88,6 +88,7 @@ java -jar build/libs/vf-cli.jar file-show --type music --id 42 --raw
 java -jar build/libs/vf-cli.jar publish-music
 java -jar build/libs/vf-cli.jar publish-files --ids-file file-ids.txt
 java -jar build/libs/vf-cli.jar admin list-groups --details FULL
+java -jar build/libs/vf-cli.jar admin list-groups --modified-after-publish
 java -jar build/libs/vf-cli.jar admin publish-group --id 7 --message "Publish now"
 java -jar build/libs/vf-cli.jar admin publish-groups --ids 7,8,9
 java -jar build/libs/vf-cli.jar scan --original-directory /music

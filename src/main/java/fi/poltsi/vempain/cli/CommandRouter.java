@@ -630,7 +630,7 @@ public class CommandRouter {
 
             var subcommand = words.size() > 1 ? words.get(1) : "";
             var options = switch (subcommand) {
-                case "list-groups" -> List.of("--details", "--search", "--page", "--size");
+                case "list-groups" -> List.of("--details", "--search", "--page", "--size", "--modified-after-publish");
                 case "publish-group" -> List.of("--id", "--message", "--publish-datetime", "--monitor");
                 case "publish-groups" -> List.of("--ids", "--monitor");
                 default -> List.<String>of();
