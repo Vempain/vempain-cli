@@ -153,8 +153,9 @@ public class AdminCommands {
         public Integer page;
         @Parameter(names = { "--size" }, description = "Page size")
         public Integer size;
-        @Parameter(names = { "--modified-after-publish" },
-                description = "List only the galleries modified after their last release to the website (both timestamps set, release older than the modification)")
+        @Parameter(names = { "--modified-after-publish" }, description = """
+                List only the galleries modified after their last release to the website (both timestamps set, release older than the modification)
+                """)
         public boolean modifiedAfterPublish = false;
     }
 
