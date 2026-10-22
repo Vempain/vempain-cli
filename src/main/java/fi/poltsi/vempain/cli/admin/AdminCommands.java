@@ -45,6 +45,10 @@ public class AdminCommands {
             && !command.search.isBlank()) {
             request.put("search", command.search);
         }
+        if (command.modifiedAfterPublish) {
+            // Only the galleries whose website copy is outdated: released once and modified after that release
+            request.put("modified_after_publish", true);
+        }
         var response = transport.postJson(session, "/content-management/galleries/paged-list", request);
 
         var items = response.optJSONArray("content");
@@ -57,12 +61,13 @@ public class AdminCommands {
             return;
         }
 
-        out.printf("%-8s %-36s %-60s%n", "id", "short_name", "description");
-        out.println("-".repeat(108));
+        // published is the time the gallery was last released to the website; null (JSON) when it never was
+        out.printf("%-8s %-36s %-60s %s%n", "id", "short_name", "description", "published");
+        out.println("-".repeat(124));
         for (int i = 0; i < items.length(); i++) {
             var item = items.getJSONObject(i);
-            out.printf("%-8d %-36s %-60s%n", item.optLong("id", 0L), formatter.truncate(item.optString("short_name", ""), 36),
-                    formatter.truncate(item.optString("description", ""), 60));
+            out.printf("%-8d %-36s %-60s %s%n", item.optLong("id", 0L), formatter.truncate(item.optString("short_name", ""), 36),
+                    formatter.truncate(item.optString("description", ""), 60), publishedColumn(item));
         }
 
         if (response.has("pageNumber")
@@ -71,6 +76,22 @@ public class AdminCommands {
             out.printf("%nPage %d/%d, total elements: %d%n", response.optInt("pageNumber", 0), response.optInt("totalPages", 0),
                     response.optLong("totalElements", 0L));
         }
+    }
+
+    /**
+     * The release time of a listed item for the table: the ISO timestamp the backend sent, trimmed to the minute, or {@code never} when the item has not been
+     * released to the website (the backend sends {@code null}).
+     */
+    public static String publishedColumn(JSONObject item) {
+        if (item.isNull("published")) {
+            return "never";
+        }
+        var published = item.optString("published", "");
+        if (published.isBlank()) {
+            return "never";
+        }
+        return published.length() > 16 ? published.substring(0, 16)
+            .replace('T', ' ') : published;
     }
 
     public void publishGroup(AdminPublishGroupCommand command, SessionStore.Session session) throws Exception {
@@ -132,6 +153,10 @@ public class AdminCommands {
         public Integer page;
         @Parameter(names = { "--size" }, description = "Page size")
         public Integer size;
+        @Parameter(names = { "--modified-after-publish" }, description = """
+                List only the galleries modified after their last release to the website (both timestamps set, release older than the modification)
+                """)
+        public boolean modifiedAfterPublish = false;
     }
 
     @Parameters(commandDescription = "Publish a single admin group (gallery)")

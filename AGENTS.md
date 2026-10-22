@@ -43,6 +43,13 @@ and sessions live under `~/.config/vempain-file-cli/`. Do not rename these witho
   JSON) prints what an earlier publish created and the grantees it added, without starting anything. The three rewrites answer `202`
   with a task; like `scan` and the publish commands they take `--monitor` and are followed in the TUI's running tasks window in shell mode.
   Argument validation happens before any request (`CliIntegrationUTC`).
+- `admin.AdminCommands.listGroups` (`admin list-groups`, `POST /content-management/galleries/paged-list`) prints `id`, `short_name`,
+  `description` and `published`, the time the gallery was last released to the website (`FileGroupListResponse.published`, trimmed to
+  the minute by `publishedColumn`; `never` when the backend sends `null`). Site files (`SiteFileResponse`) and data sets (`DataSummaryResponse`) carry the same
+  `published` field; show it the same way when a command lists them. `--modified-after-publish`
+  sends `modified_after_publish: true` (`GalleryPagedRequest`), so the backend lists only the galleries whose website copy is outdated (released once and
+  modified after that release); the page and site file listings take the same flag (`PagePagedRequest`,
+  `SiteFilePagedRequest`) should a command list them.
 - `core.HttpTransport` is the only HTTP client: login, JSON endpoints (`getJson`, `postJson`, `patchJson`) and byte content. Tests instantiate it directly.
 - `core.SessionStore` persists one session per backend (`file`, `admin`) and the active backend in `session.json`; it still reads the legacy
   single-session file format.
