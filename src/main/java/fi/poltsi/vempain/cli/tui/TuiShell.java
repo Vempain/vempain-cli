@@ -423,10 +423,13 @@ public class TuiShell {
             var file = sessionStore.load(SessionStore.BACKEND_FILE);
             var admin = sessionStore.load(SessionStore.BACKEND_ADMIN);
             var active = sessionStore.getActiveBackend();
+            var inMemory = sessionStore.isInMemory();
             var tasks = TaskBoard.lines(taskBoard.refresh());
+            var fileRejected = taskBoard.isSessionRejected(SessionStore.BACKEND_FILE);
+            var adminRejected = taskBoard.isSessionRejected(SessionStore.BACKEND_ADMIN);
             onGui(() -> {
-                fileStatus.show(file);
-                adminStatus.show(admin);
+                fileStatus.show(file, inMemory, fileRejected);
+                adminStatus.show(admin, inMemory, adminRejected);
                 var activeSession = SessionStore.BACKEND_ADMIN.equals(active) ? admin : file;
                 activeLabel.setText(activeSession == null ? "none" : active);
                 showTasks(tasks);
@@ -527,14 +530,24 @@ public class TuiShell {
             panel.addComponent(url, GridLayout.createLayoutData(GridLayout.Alignment.BEGINNING, GridLayout.Alignment.CENTER, true, false, 2, 1));
         }
 
-        private void show(SessionStore.Session session) {
+        /**
+         * @param inMemory the session was created by a login inside the shell: it is not stored on disk and ends with the shell
+         * @param rejected the backend no longer accepts the session's token
+         */
+        private void show(SessionStore.Session session, boolean inMemory, boolean rejected) {
             if (session == null) {
                 state.setText("not logged in");
                 state.setForegroundColor(TextColor.ANSI.RED);
                 url.setText("");
                 return;
             }
-            state.setText("logged in");
+            if (rejected) {
+                state.setText("session invalid");
+                state.setForegroundColor(TextColor.ANSI.RED);
+                url.setText(truncate("  " + session.baseUrl(), STATUS_COLUMNS));
+                return;
+            }
+            state.setText(inMemory ? "logged in (memory)" : "logged in");
             state.setForegroundColor(TextColor.ANSI.GREEN);
             url.setText(truncate("  " + session.baseUrl(), STATUS_COLUMNS));
         }

@@ -184,12 +184,101 @@ class HttpTransportUTC {
     }
 
     @Test
+    void requestFailures_carryTheStatusCodeAndTellARejectedSessionApart() {
+        register("/api/forbidden", 403, "application/json", "{\"error\":\"Forbidden\"}");
+        register("/api/unauthorized", 401, "application/json", "{\"error\":\"Unauthorized\"}");
+        register("/api/failing", 500, "application/json", "{\"error\":\"down\"}");
+        var client = new HttpTransport();
+        var session = new SessionStore.Session(baseUrl, "abc");
+
+        var forbidden = assertThrows(fi.poltsi.vempain.cli.core.HttpStatusException.class, () -> client.getJson(session, "/forbidden"));
+        assertEquals(403, forbidden.statusCode());
+        assertTrue(forbidden.isSessionRejected());
+        assertTrue(assertThrows(fi.poltsi.vempain.cli.core.HttpStatusException.class, () -> client.getJson(session, "/unauthorized")).isSessionRejected());
+        var failing = assertThrows(fi.poltsi.vempain.cli.core.HttpStatusException.class, () -> client.postJson(session, "/failing", new JSONObject()));
+        assertEquals(500, failing.statusCode());
+        assertFalse(failing.isSessionRejected());
+    }
+
+    @Test
     void patchJson_emptyBodyReturnsEmptyJsonObject() throws Exception {
         register("/api/empty", 200, "application/json", "");
 
         var response = new HttpTransport().patchJson(new SessionStore.Session(baseUrl, "abc"), "/empty", new JSONObject());
 
         assertEquals(0, response.length());
+    }
+
+    @Test
+    void aRenewedTokenInTheResponseIsReportedForTheSessionOfTheRequest() throws Exception {
+        registerRenewing("/api/files/music/paged", "{\"content\":[]}", "renewed-jwt", "2099-01-01T00:00:00Z");
+        var client = new HttpTransport();
+        var renewals = new java.util.ArrayList<String>();
+        client.setTokenRenewalListener((session, token, expiresAt) -> renewals.add(session.backend() + ":" + session.token() + "->" + token + "@" + expiresAt));
+        var session = new SessionStore.Session(SessionStore.BACKEND_FILE, baseUrl, "old-jwt");
+
+        client.postJson(session, "/files/music/paged", new JSONObject());
+        client.getJsonFlexible(session, "/files/music/paged");
+        // The same token again is not a renewal
+        client.postJson(new SessionStore.Session(SessionStore.BACKEND_FILE, baseUrl, "renewed-jwt"), "/files/music/paged", new JSONObject());
+        // A request outside a stored session (the version check after a login) is never reported
+        client.getJson(baseUrl, "/files/music/paged", "old-jwt");
+
+        assertEquals(java.util.List.of("file:old-jwt->renewed-jwt@2099-01-01T00:00:00Z", "file:old-jwt->renewed-jwt@2099-01-01T00:00:00Z"), renewals);
+    }
+
+    @Test
+    void backgroundRequestsCarryTheHeaderAndAreStillReportedWhenRenewed() throws Exception {
+        var backgroundHeaders = new java.util.ArrayList<String>();
+        server.createContext("/api/tasks", exchange -> {
+            backgroundHeaders.add(String.valueOf(exchange.getRequestHeaders()
+                .getFirst(HttpTransport.BACKGROUND_REQUEST_HEADER)));
+            var bytes = "{}".getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders()
+                .add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, bytes.length);
+            try (OutputStream os = exchange.getResponseBody()) {
+                os.write(bytes);
+            }
+        });
+        var client = new HttpTransport();
+        var session = new SessionStore.Session(SessionStore.BACKEND_FILE, baseUrl, "jwt");
+
+        client.getJsonFlexible(session, "/tasks", true);
+        client.getJsonFlexible(session, "/tasks", false);
+        client.getJson(session, "/tasks", true);
+        client.getJson(session, "/tasks");
+
+        assertEquals(java.util.List.of("true", "null", "true", "null"), backgroundHeaders);
+    }
+
+    @Test
+    void withoutAListenerARenewedTokenIsIgnored() throws Exception {
+        registerRenewing("/api/version", "{\"version\":\"1.0\"}", "renewed-jwt", null);
+
+        var response = new HttpTransport().getJson(new SessionStore.Session(baseUrl, "old-jwt"), "/version");
+
+        assertEquals("1.0", response.getString("version"));
+    }
+
+    private void registerRenewing(String path, String body, String renewedToken, String expiresAt) {
+        server.createContext(path, exchange -> {
+            exchange.getRequestBody()
+                .readAllBytes();
+            var bytes = body.getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders()
+                .add("Content-Type", "application/json");
+            exchange.getResponseHeaders()
+                .add(HttpTransport.RENEWED_TOKEN_HEADER, renewedToken);
+            if (expiresAt != null) {
+                exchange.getResponseHeaders()
+                    .add(HttpTransport.RENEWED_TOKEN_EXPIRES_AT_HEADER, expiresAt);
+            }
+            exchange.sendResponseHeaders(200, bytes.length);
+            try (OutputStream os = exchange.getResponseBody()) {
+                os.write(bytes);
+            }
+        });
     }
 
     @Test

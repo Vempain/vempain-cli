@@ -17,8 +17,11 @@ public class CommandHistory {
 
     private final Path historyFile;
 
+    /**
+     * The history of {@code ~/.config/vempain-cli/history} ({@link CliHome}).
+     */
     public CommandHistory() {
-        this(Path.of(System.getProperty("user.home"), ".vempain", "history"));
+        this(CliHome.historyFile());
     }
 
     public CommandHistory(Path historyFile) {

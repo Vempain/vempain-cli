@@ -12,11 +12,42 @@ import java.util.Arrays;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+/**
+ * The only HTTP client of the CLI. Every request made with a session that the user triggered renews the session: the backend answers with a fresh token in
+ * {@value #RENEWED_TOKEN_HEADER}, which is handed to the {@link TokenRenewalListener} so that the session store keeps the token whose lifetime started at the
+ * last action. Requests made with {@code background = true} (task polling) carry {@value #BACKGROUND_REQUEST_HEADER} and are not renewed.
+ */
 public class HttpTransport {
+
+    /** Response header of the backends carrying a renewed session token (vempain-auth {@code Constants.RENEWED_TOKEN_HEADER}). */
+    public static final String RENEWED_TOKEN_HEADER = "X-Vempain-Token";
+    /** Response header carrying the expiry of the renewed token as an ISO-8601 instant. */
+    public static final String RENEWED_TOKEN_EXPIRES_AT_HEADER = "X-Vempain-Token-Expires-At";
+    /** Request header marking a request the user did not trigger; the backend serves it without renewing the session. */
+    public static final String BACKGROUND_REQUEST_HEADER = "X-Vempain-Background";
+
+    /**
+     * Told when a backend renewed the session's token.
+     */
+    @FunctionalInterface
+    public interface TokenRenewalListener {
+
+        /**
+         * @param session   the session the request was made with (its token is the old one)
+         * @param token     the renewed token
+         * @param expiresAt the expiry of the renewed token as an ISO-8601 instant, or null when the backend did not send it
+         */
+        void renewed(SessionStore.Session session, String token, String expiresAt);
+    }
 
     private final HttpClient httpClient = HttpClient.newBuilder()
         .connectTimeout(Duration.ofSeconds(10))
         .build();
+    private volatile TokenRenewalListener tokenRenewalListener;
+
+    public void setTokenRenewalListener(TokenRenewalListener listener) {
+        this.tokenRenewalListener = listener;
+    }
 
     /**
      * Authenticate against the backend. The {@code password} char array is zeroed by this method as soon as it has been serialised into the request body,
@@ -32,7 +63,7 @@ public class HttpTransport {
         var requestJson = new JSONObject().put("login", username)
             .put("password", passwordStr);
 
-        var response = request("POST", baseUrl, "/login", null, requestJson.toString(), "application/json");
+        var response = request("POST", null, baseUrl, "/login", null, requestJson.toString(), "application/json", false);
         if (response.statusCode() / 100 != 2) {
             throw new IOException("Login failed: HTTP " + response.statusCode() + " body: " + responseBody(response));
         }
@@ -49,11 +80,25 @@ public class HttpTransport {
     }
 
     public JSONObject getJson(SessionStore.Session session, String path) throws IOException, InterruptedException {
-        return getJson(session.baseUrl(), path, session.token());
+        return getJson(session, path, false);
     }
 
+    /**
+     * @param background the request is not a user action (polling): it carries {@value #BACKGROUND_REQUEST_HEADER} and does not renew the session
+     */
+    public JSONObject getJson(SessionStore.Session session, String path, boolean background) throws IOException, InterruptedException {
+        var response = request("GET", session, session.baseUrl(), path, session.token(), null, "application/json", background);
+        if (response.statusCode() / 100 != 2) {
+            throw requestFailure("GET", session.baseUrl(), path, response);
+        }
+        return new JSONObject(responseBody(response));
+    }
+
+    /**
+     * A request outside a stored session (the version check right after a login); it is never renewed.
+     */
     public JSONObject getJson(String baseUrl, String path, String token) throws IOException, InterruptedException {
-        var response = request("GET", baseUrl, path, token, null, "application/json");
+        var response = request("GET", null, baseUrl, path, token, null, "application/json", false);
         if (response.statusCode() / 100 != 2) {
             throw requestFailure("GET", baseUrl, path, response);
         }
@@ -61,7 +106,14 @@ public class HttpTransport {
     }
 
     public JSONObject getJsonFlexible(SessionStore.Session session, String path) throws IOException, InterruptedException {
-        var response = request("GET", session.baseUrl(), path, session.token(), null, "application/json");
+        return getJsonFlexible(session, path, false);
+    }
+
+    /**
+     * @param background the request is not a user action (polling): it carries {@value #BACKGROUND_REQUEST_HEADER} and does not renew the session
+     */
+    public JSONObject getJsonFlexible(SessionStore.Session session, String path, boolean background) throws IOException, InterruptedException {
+        var response = request("GET", session, session.baseUrl(), path, session.token(), null, "application/json", background);
         if (response.statusCode() / 100 != 2) {
             throw requestFailure("GET", session.baseUrl(), path, response);
         }
@@ -76,7 +128,7 @@ public class HttpTransport {
     }
 
     public JSONObject postJson(SessionStore.Session session, String path, JSONObject body) throws IOException, InterruptedException {
-        var response = request("POST", session.baseUrl(), path, session.token(), body.toString(), "application/json");
+        var response = request("POST", session, session.baseUrl(), path, session.token(), body.toString(), "application/json", false);
         if (response.statusCode() / 100 != 2) {
             throw requestFailure("POST", session.baseUrl(), path, response);
         }
@@ -91,7 +143,7 @@ public class HttpTransport {
     }
 
     public JSONObject patchJson(SessionStore.Session session, String path, JSONObject body) throws IOException, InterruptedException {
-        var response = request("PATCH", session.baseUrl(), path, session.token(), body.toString(), "application/json");
+        var response = request("PATCH", session, session.baseUrl(), path, session.token(), body.toString(), "application/json", false);
         if (response.statusCode() / 100 != 2) {
             throw requestFailure("PATCH", session.baseUrl(), path, response);
         }
@@ -106,22 +158,26 @@ public class HttpTransport {
     }
 
     public void delete(SessionStore.Session session, String path) throws IOException, InterruptedException {
-        var response = request("DELETE", session.baseUrl(), path, session.token(), null, "application/json");
+        var response = request("DELETE", session, session.baseUrl(), path, session.token(), null, "application/json", false);
         if (response.statusCode() / 100 != 2) {
             throw requestFailure("DELETE", session.baseUrl(), path, response);
         }
     }
 
     public HttpResponse<byte[]> getBytes(SessionStore.Session session, String path) throws IOException, InterruptedException {
-        var response = request("GET", session.baseUrl(), path, session.token(), null, "*/*");
+        var response = request("GET", session, session.baseUrl(), path, session.token(), null, "*/*", false);
         if (response.statusCode() / 100 != 2) {
             throw requestFailure("GET", session.baseUrl(), path, response);
         }
         return response;
     }
 
-    private HttpResponse<byte[]> request(String method, String baseUrl, String path, String token, String body, String accept)
-            throws IOException, InterruptedException {
+    /**
+     * @param session    the stored session the request belongs to, or null; a renewed token in the response is reported for it
+     * @param background marks a request the user did not trigger, which the backend does not renew
+     */
+    private HttpResponse<byte[]> request(String method, SessionStore.Session session, String baseUrl, String path, String token, String body, String accept,
+            boolean background) throws IOException, InterruptedException {
         var fullUri = URI.create(baseUrl + (path.startsWith("/") ? path : "/" + path));
         var builder = HttpRequest.newBuilder(fullUri)
             .timeout(Duration.ofSeconds(30))
@@ -130,6 +186,9 @@ public class HttpTransport {
         if (token != null
             && !token.isBlank()) {
             builder.header("Authorization", "Bearer " + token);
+        }
+        if (background) {
+            builder.header(BACKGROUND_REQUEST_HEADER, "true");
         }
 
         if ("POST".equals(method)) {
@@ -144,7 +203,28 @@ public class HttpTransport {
             builder.GET();
         }
 
-        return httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofByteArray());
+        var response = httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofByteArray());
+        reportRenewedToken(session, response);
+        return response;
+    }
+
+    private void reportRenewedToken(SessionStore.Session session, HttpResponse<byte[]> response) {
+        var listener = tokenRenewalListener;
+        if (session == null
+            || listener == null) {
+            return;
+        }
+        var renewed = response.headers()
+            .firstValue(RENEWED_TOKEN_HEADER)
+            .orElse(null);
+        if (renewed == null
+            || renewed.isBlank()
+            || renewed.equals(session.token())) {
+            return;
+        }
+        listener.renewed(session, renewed, response.headers()
+            .firstValue(RENEWED_TOKEN_EXPIRES_AT_HEADER)
+            .orElse(null));
     }
 
     private String responseBody(HttpResponse<byte[]> response) {
@@ -152,6 +232,7 @@ public class HttpTransport {
     }
 
     private IOException requestFailure(String method, String baseUrl, String path, HttpResponse<byte[]> response) {
-        return new IOException(method + " " + baseUrl + path + " failed: HTTP " + response.statusCode() + " body: " + responseBody(response));
+        return new HttpStatusException(method + " " + baseUrl + path + " failed: HTTP " + response.statusCode() + " body: " + responseBody(response),
+                response.statusCode());
     }
 }

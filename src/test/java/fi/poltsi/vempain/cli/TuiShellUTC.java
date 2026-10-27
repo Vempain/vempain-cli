@@ -144,7 +144,8 @@ class TuiShellUTC {
     @Test
     void shell_showsSessionAndRunningTasksWindowsAndFollowsLogin() throws Exception {
         PasswordReader consoleReader = prompt -> fail("The TUI must ask the password in its own dialog");
-        startShell(new SessionStore(), consoleReader);
+        var sessionStore = new SessionStore();
+        startShell(sessionStore, consoleReader);
 
         var initial = awaitScreen(screen -> shows(screen, "Log in to the file or admin backend"));
         assertWindowCorners(initial);
@@ -165,7 +166,7 @@ class TuiShellUTC {
         press(KeyType.Enter);
 
         var loggedIn = awaitScreen(screen -> shows(screen, "[file] RUNNING")
-                                             && "logged in".equals(stateOf(screen, "File backend")));
+                                             && "logged in (memory)".equals(stateOf(screen, "File backend")));
         assertWindowCorners(loggedIn);
         assertEquals("not logged in", stateOf(loggedIn, "Admin backend"));
         assertTrue(loggedIn.stream()
@@ -177,7 +178,8 @@ class TuiShellUTC {
         assertFalse(loggedIn.stream()
             .anyMatch(line -> line.contains("Music data set")), "finished tasks are not listed");
         assertEquals("secret", new JSONObject(loginBody.get()).getString("password"));
-        assertNotNull(new SessionStore().load(SessionStore.BACKEND_FILE));
+        assertNull(new SessionStore().load(SessionStore.BACKEND_FILE), "a login inside the TUI is kept in memory only");
+        assertNotNull(sessionStore.load(SessionStore.BACKEND_FILE), "the running TUI holds the session in memory");
 
         press(KeyType.ArrowUp);
         awaitScreen(screen -> shows(screen, "vempain-file> login --backend file"));
@@ -192,6 +194,63 @@ class TuiShellUTC {
         press(KeyType.Enter);
         shellThread.join(TIMEOUT.toMillis());
         assertFalse(shellThread.isAlive(), "exit closes the TUI");
+        assertNull(shellFailure.get());
+        assertNull(sessionStore.load(SessionStore.BACKEND_FILE), "the in-memory session ends with the TUI");
+        assertFalse(sessionStore.isInMemory());
+    }
+
+    @Test
+    void shell_stopsPollingABackendThatRejectsTheSessionUntilTheUserLogsInAgain() throws Exception {
+        var rejectedPolls = new java.util.concurrent.atomic.AtomicInteger();
+        server.createContext("/stale/api/tasks", exchange -> {
+            var token = exchange.getRequestHeaders()
+                .getFirst("Authorization");
+            if ("Bearer stale-jwt".equals(token)) {
+                rejectedPolls.incrementAndGet();
+                var bytes = "{\"error\":\"Forbidden\"}".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                exchange.sendResponseHeaders(403, bytes.length);
+                exchange.getResponseBody()
+                    .write(bytes);
+                exchange.close();
+                return;
+            }
+            send(exchange, "[{\"task_id\":\"fresh-1\",\"title\":\"Fresh scan\",\"status\":\"RUNNING\",\"percent\":10}]");
+        });
+        server.createContext("/stale/api/login", exchange -> {
+            exchange.getRequestBody()
+                .readAllBytes();
+            send(exchange, "[{\"token\":\"fresh-jwt\"}]");
+        });
+        server.createContext("/stale/api/version", exchange -> send(exchange, "{\"version\":\"0.0.1-SNAPSHOT\",\"service\":\"test\"}"));
+        var staleUrl = "http://localhost:"
+                + server.getAddress()
+                    .getPort()
+                + "/stale/api";
+        var sessionStore = new SessionStore();
+        sessionStore.save(SessionStore.BACKEND_ADMIN, staleUrl, "stale-jwt");
+        startShell(sessionStore, prompt -> fail("The TUI must ask the password in its own dialog"));
+
+        var rejected = awaitScreen(screen -> shows(screen, "[admin] tasks unavailable: session no longer valid, log in again")
+                                             && "session invalid".equals(stateOf(screen, "Admin backend")));
+        assertTrue(rejected.stream()
+            .anyMatch(line -> line.contains(staleUrl)), "the session window still shows the backend URL");
+        // Let several poll intervals pass: the rejected token is not sent again.
+        Thread.sleep(700);
+        assertEquals(1, rejectedPolls.get(), "the backend is asked once with the rejected token");
+
+        type("login --backend admin --url " + staleUrl + " --username admin");
+        press(KeyType.Enter);
+        awaitScreen(screen -> shows(screen, "Enter: log in   Esc: cancel"));
+        type("secret");
+        press(KeyType.Enter);
+
+        awaitScreen(screen -> shows(screen, "[admin] RUNNING     10%  Fresh scan")
+                              && "logged in (memory)".equals(stateOf(screen, "Admin backend")));
+        assertEquals(1, rejectedPolls.get());
+
+        type("exit");
+        press(KeyType.Enter);
+        shellThread.join(TIMEOUT.toMillis());
         assertNull(shellFailure.get());
     }
 
@@ -280,7 +339,7 @@ class TuiShellUTC {
 
             type("files-list --unknown");
             press(KeyType.Enter);
-            awaitScreen(screen -> shows(screen, "Usage: vempain-file-cli")
+            awaitScreen(screen -> shows(screen, "Usage: vf-cli")
                                   || pageUp());
 
             type("exit");

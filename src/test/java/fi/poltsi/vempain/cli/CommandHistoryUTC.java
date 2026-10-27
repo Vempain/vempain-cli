@@ -13,6 +13,33 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class CommandHistoryUTC {
 
     @Test
+    void defaultHistory_livesInTheCliDirectoryAndTakesOverTheHistoryOfAnEarlierRelease() throws Exception {
+        var previousHome = System.getProperty("user.home");
+        var tempHome = Files.createTempDirectory("vempain-home");
+        System.setProperty("user.home", tempHome.toString());
+        try {
+            var legacyFile = tempHome.resolve(".vempain")
+                .resolve("history");
+            Files.createDirectories(legacyFile.getParent());
+            Files.writeString(legacyFile, "2026-10-11T23:00:00\tlogin --backend file\n");
+
+            var history = new CommandHistory();
+
+            assertEquals(java.util.List.of("login --backend file"), history.commands());
+            var historyFile = tempHome.resolve(".config")
+                .resolve("vempain-cli")
+                .resolve("history");
+            assertTrue(Files.exists(historyFile), "the history now lives in ~/.config/vempain-cli");
+            assertTrue(!Files.exists(legacyFile), "the old history is moved");
+            history.append("session show");
+            assertTrue(Files.readString(historyFile)
+                .endsWith("\tsession show\n"));
+        } finally {
+            System.setProperty("user.home", previousHome);
+        }
+    }
+
+    @Test
     void append_createsParentAndWritesTimestampedCommand() throws Exception {
         var historyFile = Files.createTempDirectory("vempain-history")
             .resolve("nested/history");
