@@ -89,6 +89,10 @@ and the main class is `VempainFileCliApplication`. Do not rename these without a
 java -jar build/libs/vf-cli.jar --help
 ```
 
+javac runs with `-Xlint:deprecation -Xlint:unchecked -Werror` in every module (`tasks.withType(JavaCompile)` in the `build.gradle` files), so a deprecated
+3rd-party API or an unchecked operation fails the compile: replace the call with the documented successor; a deliberate exception needs `@SuppressWarnings` with
+a comment explaining why.
+
 Only Maven Central dependencies are needed today. If the typed API dependencies are enabled, set `GITHUB_ACTOR`/`GITHUB_TOKEN` or `gpr.user`/`gpr.token`
 in `~/.gradle/gradle.properties` for GitHub Packages.
 

@@ -42,9 +42,11 @@ repositories {
     }
 }
 
-// Report deprecated API use and unchecked operations with their location instead of javac's "recompile with -Xlint" note
+// Report deprecated API use and unchecked operations with their location instead of javac's "recompile with -Xlint" note, and fail the
+// build on any of them (-Werror): deprecated 3rd-party functionality is replaced, never carried along; deliberate exceptions need an
+// explicit @SuppressWarnings with a comment
 tasks.withType(JavaCompile).configureEach {
-    options.compilerArgs += ['-Xlint:deprecation', '-Xlint:unchecked']
+    options.compilerArgs += ['-Xlint:deprecation', '-Xlint:unchecked', '-Werror']
 }
 
 dependencies {
