@@ -60,7 +60,7 @@ class SessionStoreUTC {
     @Test
     void load_malformedFileReturnsNull() throws Exception {
         var sessionFile = tempHome.resolve(".config")
-            .resolve("vempain-file-cli")
+            .resolve("vempain-cli")
             .resolve("session.json");
         Files.createDirectories(sessionFile.getParent());
         Files.writeString(sessionFile, "not-json", StandardCharsets.UTF_8);
@@ -221,9 +221,122 @@ class SessionStoreUTC {
             .token());
     }
 
+    @Test
+    void keepSessionsInMemory_removesTheStoredFileAndKeepsLaterSessionsOffDisk() throws Exception {
+        sessionStore.save(SessionStore.BACKEND_FILE, "localhost:8080", "stored-file-token");
+        sessionStore.save(SessionStore.BACKEND_ADMIN, "localhost:9090", "stored-admin-token");
+        assertFalse(sessionStore.isInMemory());
+
+        sessionStore.keepSessionsInMemory();
+
+        assertTrue(sessionStore.isInMemory());
+        assertFalse(Files.exists(sessionFile()), "the stored sessions are invalidated");
+        assertNull(sessionStore.load(SessionStore.BACKEND_FILE), "the old file session is gone");
+        assertNull(sessionStore.load(SessionStore.BACKEND_ADMIN), "the old admin session is gone");
+        assertEquals(SessionStore.BACKEND_FILE, sessionStore.getActiveBackend());
+
+        sessionStore.save(SessionStore.BACKEND_ADMIN, "localhost:9090", "memory-admin-token");
+        sessionStore.save(SessionStore.BACKEND_FILE, "localhost:8080", "memory-file-token");
+
+        assertFalse(Files.exists(sessionFile()), "nothing is written while in memory");
+        assertEquals("memory-admin-token", sessionStore.load(SessionStore.BACKEND_ADMIN)
+            .token());
+        assertEquals("memory-file-token", sessionStore.load(SessionStore.BACKEND_FILE)
+            .token());
+        assertEquals(SessionStore.BACKEND_FILE, sessionStore.getActiveBackend());
+        assertNull(new SessionStore().load(SessionStore.BACKEND_FILE), "another store sees no session");
+
+        sessionStore.setActiveBackend(SessionStore.BACKEND_ADMIN);
+        assertEquals(SessionStore.BACKEND_ADMIN, sessionStore.getActiveBackend());
+        assertFalse(Files.exists(sessionFile()));
+
+        sessionStore.clear(SessionStore.BACKEND_ADMIN);
+        assertNull(sessionStore.load(SessionStore.BACKEND_ADMIN));
+        assertEquals(SessionStore.BACKEND_FILE, sessionStore.getActiveBackend(), "the active backend moves to the remaining session");
+        assertTrue(sessionStore.isInMemory(), "clearing one backend keeps the memory mode");
+
+        sessionStore.clear(SessionStore.BACKEND_FILE);
+        assertNull(sessionStore.load(SessionStore.BACKEND_FILE));
+        assertTrue(sessionStore.isInMemory(), "clearing the last session keeps the memory mode");
+
+        sessionStore.save(SessionStore.BACKEND_FILE, "localhost:8080", "memory-file-token-2");
+        sessionStore.keepSessionsInMemory();
+        assertEquals("memory-file-token-2", sessionStore.load(SessionStore.BACKEND_FILE)
+            .token(), "entering the memory mode again keeps the in-memory sessions");
+    }
+
+    @Test
+    void renewToken_replacesTheTokenOfTheSessionAndKeepsTheActiveBackend() throws Exception {
+        sessionStore.save(SessionStore.BACKEND_FILE, "localhost:8080", "file-token");
+        sessionStore.save(SessionStore.BACKEND_ADMIN, "localhost:9090", "admin-token");
+        assertEquals(SessionStore.BACKEND_ADMIN, sessionStore.getActiveBackend());
+
+        assertTrue(sessionStore.renewToken(SessionStore.BACKEND_FILE, "file-token", "file-token-2"));
+
+        assertEquals("file-token-2", sessionStore.load(SessionStore.BACKEND_FILE)
+            .token());
+        assertEquals("http://localhost:8080/api", sessionStore.load(SessionStore.BACKEND_FILE)
+            .baseUrl());
+        assertEquals(SessionStore.BACKEND_ADMIN, sessionStore.getActiveBackend(), "a renewal never switches the active backend");
+        assertEquals("file-token-2", new SessionStore().load(SessionStore.BACKEND_FILE)
+            .token(), "the renewed token is on disk for the next invocation");
+
+        // A stale renewal (the token was replaced by a newer login meanwhile), a missing session and an empty token change nothing
+        assertFalse(sessionStore.renewToken(SessionStore.BACKEND_FILE, "file-token", "file-token-3"));
+        assertFalse(sessionStore.renewToken("file", "file-token-2", " "));
+        sessionStore.clear(SessionStore.BACKEND_ADMIN);
+        assertFalse(sessionStore.renewToken(SessionStore.BACKEND_ADMIN, "admin-token", "admin-token-2"));
+        assertEquals("file-token-2", sessionStore.load(SessionStore.BACKEND_FILE)
+            .token());
+
+        // In memory mode the renewal stays in memory
+        sessionStore.keepSessionsInMemory();
+        sessionStore.save(SessionStore.BACKEND_FILE, "localhost:8080", "memory-token");
+        assertTrue(sessionStore.renewToken(SessionStore.BACKEND_FILE, "memory-token", "memory-token-2"));
+        assertEquals("memory-token-2", sessionStore.load(SessionStore.BACKEND_FILE)
+            .token());
+        assertFalse(Files.exists(sessionFile()));
+    }
+
+    @Test
+    void discardInMemorySessions_forgetsTheSessionsAndReturnsToTheEmptyDiskStore() throws Exception {
+        sessionStore.save(SessionStore.BACKEND_FILE, "localhost:8080", "stored-file-token");
+        sessionStore.keepSessionsInMemory();
+        sessionStore.save(SessionStore.BACKEND_FILE, "localhost:8080", "memory-file-token");
+        sessionStore.save(SessionStore.BACKEND_ADMIN, "localhost:9090", "memory-admin-token");
+
+        sessionStore.discardInMemorySessions();
+
+        assertFalse(sessionStore.isInMemory());
+        assertNull(sessionStore.load(SessionStore.BACKEND_FILE));
+        assertNull(sessionStore.load(SessionStore.BACKEND_ADMIN));
+        assertFalse(Files.exists(sessionFile()));
+
+        sessionStore.save(SessionStore.BACKEND_FILE, "localhost:8080", "stored-again");
+        assertTrue(Files.exists(sessionFile()), "after the memory mode the store persists again");
+        assertEquals("stored-again", new SessionStore().load(SessionStore.BACKEND_FILE)
+            .token());
+    }
+
+    @Test
+    void load_movesTheSessionFileOfAnEarlierReleaseIntoTheCliDirectory() throws Exception {
+        var legacyFile = tempHome.resolve(".config")
+            .resolve("vempain-file-cli")
+            .resolve("session.json");
+        Files.createDirectories(legacyFile.getParent());
+        Files.writeString(legacyFile, "{\"active_backend\":\"admin\",\"backends\":{\"admin\":{\"base_url\":\"http://h/api\",\"token\":\"t\"}}}",
+                StandardCharsets.UTF_8);
+
+        assertEquals("t", sessionStore.load(SessionStore.BACKEND_ADMIN)
+            .token());
+        assertTrue(Files.exists(sessionFile()), "the file now lives in ~/.config/vempain-cli");
+        assertFalse(Files.exists(legacyFile), "the old file is moved, not copied");
+        assertFalse(Files.exists(legacyFile.getParent()), "the emptied old directory is removed");
+    }
+
     private Path sessionFile() {
         return tempHome.resolve(".config")
-            .resolve("vempain-file-cli")
+            .resolve("vempain-cli")
             .resolve("session.json");
     }
 

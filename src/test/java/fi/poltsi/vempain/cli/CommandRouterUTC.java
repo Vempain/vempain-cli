@@ -145,7 +145,8 @@ class CommandRouterUTC {
         assertTrue(out().contains("Interactive shell started. Type 'exit' to quit."), out());
         assertTrue(out().contains("  file:  http://file.example.com/api"), out());
         assertTrue(err().isBlank(), err());
-        assertTrue(Files.readString(tempHome.resolve(".vempain")
+        assertTrue(Files.readString(tempHome.resolve(".config")
+            .resolve("vempain-cli")
             .resolve("history"))
             .contains("\tsession show"), "shell lines are recorded in the history file");
     }

@@ -35,7 +35,8 @@ public class TaskCommands {
             out.println(result.toString(2));
             return;
         }
-        tasks.forEach(task -> out.printf("%s %-12s %3d%% %s%n", task.taskId(), task.status(), task.percent(), task.title()));
+        tasks.forEach(task -> out.printf("%s %-12s %3d%% %s%s%n", task.taskId(), task.status(), task.percent(), task.title(), task.remainingTimeText()
+            .isEmpty() ? "" : "  " + task.remainingTimeText() + " left"));
     }
 
     public void monitor(MonitorCommand command) throws Exception {

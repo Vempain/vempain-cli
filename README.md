@@ -1,8 +1,9 @@
 # Vempain CLI
 
-Standalone command-line client repository for Vempain services.
+Standalone command-line client for the Vempain backends: it talks to both Vempain File and Vempain Admin over their REST APIs.
 
-Current implementation supports both Vempain File and Vempain Admin backend APIs.
+For historical reasons the installed command is `vf-cli` and the RPM package is named `vempain-file-cli`; both serve the file and the admin
+backend alike. All state of the tool lives in `~/.config/vempain-cli/` (see [Local state](#local-state)).
 
 ## Features implemented
 
@@ -29,12 +30,14 @@ Current implementation supports both Vempain File and Vempain Admin backend APIs
 - Full-screen interactive shell (`vf-cli shell`, Lanterna TUI):
   - session window in the upper left corner: login state and base URL of the file and admin backends, and the active backend
   - running tasks window in the upper right corner: the queued/running/cancelling background tasks of every logged-in backend,
-    refreshed every 2 seconds and right after each command (so it fills as soon as you log in)
+    refreshed every 2 seconds and right after each command (so it fills as soon as you log in); a backend that rejects the session (401/403, for example an
+    expired token) is not polled again until you log in to it anew, and the session window shows `session invalid`
   - output window and command line below them; the password of `login` is asked in a masked dialog (Esc cancels)
   - tab completion: command names and options, file types in lowercase, backend path completion for scan directories, and local filesystem
     completion for options that name a local file (`publish-files --ids-file`: relative to the working directory, absolute, or `~/...`;
     directories stay open for further completion and a completed name containing spaces is quoted)
-    - shell commands appended to `~/.vempain/history` as `<datetime>\t<command>`, using `YYYY-MM-DDThh:mm:ss`; previous commands are available with the
+    - shell commands appended to `~/.config/vempain-cli/history` as `<datetime>\t<command>`, using `YYYY-MM-DDThh:mm:ss`; previous commands are available with
+      the
       Up/Down keys in later shell sessions; PgUp/PgDn scroll the output (the view stays put while scrolled back and follows new output again
       once PgDn reaches the end); `exit`, `quit` or Ctrl+D on an empty line leave the shell
     - long-running commands are followed in the running tasks window instead of the separate full-screen task monitor; direct commands can use `--monitor`
@@ -63,7 +66,7 @@ java -jar build/libs/vf-cli.jar --help
 
 ### Wrapper script (RPM installation)
 
-After installing the `vempain-file-cli` RPM package, use:
+After installing the RPM package (named `vempain-file-cli` for historical reasons; it contains the client for both backends), use:
 
 ```bash
 vf-cli --help
@@ -133,15 +136,23 @@ vempain-file> publish-files --ids-file ../site_file_202610111824.csv
 vempain-file> exit
 ```
 
-## Session storage
+## Local state
 
-Session is stored at:
+Everything the CLI keeps between invocations lives in one directory, `~/.config/vempain-cli/`:
 
-- `~/.config/vempain-file-cli/session.json`
+- `session.json`: the backend-scoped sessions (file and admin) and the active backend
+- `history`: the shell command history
 
-Shell command history is stored at:
+A `login` run as a one-shot command stores the session in `session.json`. Later invocations, including a `shell`, reuse the stored
+sessions. Sessions slide: every command renews the session on the backend, which answers with a fresh token, and the CLI stores it in
+place of the old one (on disk, or in memory for an in-shell login), so a session lives the backend's token lifetime counted from the last
+command. The automatic polling of the TUI's running tasks window and of `task-monitor` is marked as background and does not keep an idle
+session alive. A `login` typed **inside** the shell or TUI behaves differently: it deletes `session.json` (every stored session is invalidated)
+and keeps the new session, and any further in-shell login, in memory only. `session show` then says so, the TUI session window shows
+`logged in (memory)`, and the sessions are gone when the shell exits. Log in with the one-shot command again when a stored session is wanted.
 
-- `~/.vempain/history`
+Earlier releases stored the sessions in `~/.config/vempain-file-cli/session.json` and the history in `~/.vempain/history`. A file still found
+there is moved into `~/.config/vempain-cli/` the first time the CLI needs it, and the emptied old directory is removed.
 
 ## Related docs
 

@@ -15,11 +15,25 @@ public class TaskClient {
     }
 
     public TaskProgress get(SessionStore.Session session, String taskId) throws IOException, InterruptedException {
-        return TaskProgress.fromJson(transport.getJson(session, "/tasks/" + taskId));
+        return get(session, taskId, false);
+    }
+
+    /**
+     * @param background the read is a poll, not a user action: it does not renew the session
+     */
+    public TaskProgress get(SessionStore.Session session, String taskId, boolean background) throws IOException, InterruptedException {
+        return TaskProgress.fromJson(transport.getJson(session, "/tasks/" + taskId, background));
     }
 
     public List<TaskProgress> list(SessionStore.Session session) throws IOException, InterruptedException {
-        var response = transport.getJsonFlexible(session, "/tasks");
+        return list(session, false);
+    }
+
+    /**
+     * @param background the read is a poll, not a user action: it does not renew the session
+     */
+    public List<TaskProgress> list(SessionStore.Session session, boolean background) throws IOException, InterruptedException {
+        var response = transport.getJsonFlexible(session, "/tasks", background);
         var items = response.optJSONArray("items");
         if (items == null
             && response.has("tasks")) {

@@ -513,8 +513,93 @@ class CliIntegrationUTC {
             app.runShell(reader);
 
             assertEquals(List.of("vempain-unauthicated> ", "vempain-file> ", "vempain-admin> "), prompts);
-            assertNotNull(sessionStore.load(SessionStore.BACKEND_FILE));
-            assertNotNull(sessionStore.load(SessionStore.BACKEND_ADMIN));
+            assertNull(sessionStore.load(SessionStore.BACKEND_FILE), "a login inside the shell does not outlive the shell");
+            assertNull(sessionStore.load(SessionStore.BACKEND_ADMIN), "a login inside the shell does not outlive the shell");
+            assertFalse(sessionStore.isInMemory());
+        }
+    }
+
+    @Test
+    void runShell_loginInsideTheShellInvalidatesTheStoredSessionsAndKeepsTheNewOnesInMemoryOnly() throws Exception {
+        try (var fileServer = new MockApiServer(); var adminServer = new MockApiServer()) {
+            fileServer.registerJson("/api/login", "[{\"token\":\"shell-file-jwt\"}]");
+            fileServer.registerJson("/api/files/music/paged", "{\"content\":[],\"page\":0,\"total_pages\":0,\"total_elements\":0}");
+
+            var sessionFile = tempHome.resolve(".config")
+                .resolve("vempain-cli")
+                .resolve("session.json");
+            fileServer.renewTokensWith("shell-file-jwt-renewed");
+            var sessionStore = new SessionStore();
+            sessionStore.save(SessionStore.BACKEND_FILE, fileServer.baseUrl(), "stored-file-jwt");
+            sessionStore.save(SessionStore.BACKEND_ADMIN, adminServer.baseUrl(), "stored-admin-jwt");
+            assertTrue(Files.exists(sessionFile));
+
+            var outBytes = new ByteArrayOutputStream();
+            PasswordReader mockReader = prompt -> "secret".toCharArray();
+            var app = new VempainFileCliApplication(sessionStore, new HttpTransport(), new PrintStream(outBytes), System.err, mockReader);
+            var prompts = new ArrayList<String>();
+            var reader = scriptedReader(List.of("session show", "login --backend file --url " + fileServer.baseUrl() + " --username admin",
+                    "files-list --type music", "session show", "exit"), prompts);
+
+            app.runShell(reader);
+
+            var output = outBytes.toString(StandardCharsets.UTF_8);
+            assertTrue(output.contains("Stored sessions:"), "before the login the stored sessions are used: " + output);
+            assertTrue(output.contains("is kept in memory until the shell exits; the sessions stored on disk were removed."), output);
+            assertEquals("Bearer shell-file-jwt", fileServer.lastAuthorization("/api/files/music/paged"), "commands after the login use the in-memory session");
+            // The renewal answered by that command replaced the in-memory token, and the file stayed absent
+            assertTrue(output.contains("Sessions kept in memory until the shell exits"), output);
+            assertTrue(output.contains("  admin: not logged in"), "the stored admin session was invalidated by the login: " + output);
+            assertFalse(Files.exists(sessionFile), "the session file is removed and not written again");
+            // The last stored login (admin) is active until the in-shell login, which invalidates it and makes the new file session active.
+            assertEquals(List.of("vempain-admin> ", "vempain-admin> ", "vempain-file> ", "vempain-file> ", "vempain-file> "), prompts);
+            assertNull(sessionStore.load(SessionStore.BACKEND_FILE), "the in-memory session is discarded when the shell exits");
+            assertNull(new SessionStore().load(SessionStore.BACKEND_FILE), "nothing survives on disk");
+        }
+    }
+
+    @Test
+    void aCommandRenewsTheStoredSessionWithoutChangingTheActiveBackend() throws Exception {
+        try (var fileServer = new MockApiServer(); var adminServer = new MockApiServer()) {
+            fileServer.registerJson("/api/files/music/paged", "{\"content\":[],\"page\":0,\"total_pages\":0,\"total_elements\":0}");
+            fileServer.renewTokensWith("file-jwt-renewed");
+            var sessionStore = new SessionStore();
+            sessionStore.save(SessionStore.BACKEND_FILE, fileServer.baseUrl(), "file-jwt");
+            sessionStore.save(SessionStore.BACKEND_ADMIN, adminServer.baseUrl(), "admin-jwt");
+            var app = new VempainFileCliApplication(sessionStore, new HttpTransport(), new PrintStream(new ByteArrayOutputStream()), System.err);
+
+            app.run(new String[]{ "files-list", "--type", "music" });
+
+            assertEquals("file-jwt-renewed", new SessionStore().load(SessionStore.BACKEND_FILE)
+                .token(), "the next invocation uses the renewed token");
+            assertEquals("admin-jwt", new SessionStore().load(SessionStore.BACKEND_ADMIN)
+                .token());
+            assertEquals(SessionStore.BACKEND_ADMIN, new SessionStore().getActiveBackend(), "the active backend is untouched by a renewal");
+            assertTrue(fileServer.backgroundRequests()
+                .isEmpty(), "a command is a user action");
+
+            // The renewed token is what the following command sends
+            app.run(new String[]{ "files-list", "--type", "music" });
+            assertEquals("Bearer file-jwt-renewed", fileServer.lastAuthorization("/api/files/music/paged"));
+        }
+    }
+
+    @Test
+    void login_outsideTheShell_stillStoresTheSessionOnDisk() throws Exception {
+        try (var server = new MockApiServer()) {
+            server.registerJson("/api/login", "[{\"token\":\"file-jwt\"}]");
+            var sessionStore = new SessionStore();
+            var outBytes = new ByteArrayOutputStream();
+            PasswordReader mockReader = prompt -> "secret".toCharArray();
+            var app = new VempainFileCliApplication(sessionStore, new HttpTransport(), new PrintStream(outBytes), System.err, mockReader);
+
+            app.run(new String[]{ "login", "--backend", "file", "--url", server.baseUrl(), "--username", "admin" });
+
+            assertTrue(outBytes.toString(StandardCharsets.UTF_8)
+                .contains("Session saved for backend 'file'"));
+            assertFalse(sessionStore.isInMemory());
+            assertEquals("file-jwt", new SessionStore().load(SessionStore.BACKEND_FILE)
+                .token(), "a one-shot login is persisted for later invocations");
         }
     }
 
@@ -563,7 +648,7 @@ class CliIntegrationUTC {
         assertTrue(err.contains("Was passed main parameter")
                    || err.contains("Unknown option"));
         assertTrue(outBytes.toString(StandardCharsets.UTF_8)
-            .contains("Usage: vempain-file-cli"), "usage is printed to the router's output stream");
+            .contains("Usage: vf-cli"), "usage is printed to the router's output stream");
     }
 
     @Test
@@ -789,6 +874,9 @@ class CliIntegrationUTC {
 
         private final HttpServer server;
         private final List<String> requests = Collections.synchronizedList(new ArrayList<>());
+        private final java.util.Map<String, String> authorizations = new java.util.concurrent.ConcurrentHashMap<>();
+        private final List<String> backgroundRequests = Collections.synchronizedList(new ArrayList<>());
+        private volatile String renewedToken;
         private JSONObject lastRequestBody;
 
         MockApiServer() throws IOException {
@@ -824,6 +912,19 @@ class CliIntegrationUTC {
                         + " "
                         + exchange.getRequestURI()
                             .getPath());
+                var authorization = exchange.getRequestHeaders()
+                    .getFirst("Authorization");
+                if (authorization != null) {
+                    authorizations.put(exchange.getRequestURI()
+                        .getPath(), authorization);
+                }
+                if ("true".equals(exchange.getRequestHeaders()
+                    .getFirst(HttpTransport.BACKGROUND_REQUEST_HEADER))) {
+                    backgroundRequests.add(exchange.getRequestMethod()
+                            + " "
+                            + exchange.getRequestURI()
+                                .getPath());
+                }
                 var requestJson = body.isBlank() ? new JSONObject() : new JSONObject(body);
                 if (!body.isBlank()) {
                     lastRequestBody = requestJson;
@@ -833,11 +934,42 @@ class CliIntegrationUTC {
                     .getBytes(StandardCharsets.UTF_8);
                 exchange.getResponseHeaders()
                     .add("Content-Type", "application/json");
+                // Like the backends: an authenticated request that is not a background request answers with a renewed token
+                if (renewedToken != null
+                    && authorization != null
+                    && !"true".equals(exchange.getRequestHeaders()
+                        .getFirst(HttpTransport.BACKGROUND_REQUEST_HEADER))) {
+                    exchange.getResponseHeaders()
+                        .add(HttpTransport.RENEWED_TOKEN_HEADER, renewedToken);
+                    exchange.getResponseHeaders()
+                        .add(HttpTransport.RENEWED_TOKEN_EXPIRES_AT_HEADER, "2099-01-01T00:00:00Z");
+                }
                 exchange.sendResponseHeaders(reply.status(), bytes.length == 0 ? -1 : bytes.length);
                 try (OutputStream os = exchange.getResponseBody()) {
                     os.write(bytes);
                 }
             });
+        }
+
+        /**
+         * @return the {@code Authorization} header of the last request to {@code path}, or null
+         */
+        String lastAuthorization(String path) {
+            return authorizations.get(path);
+        }
+
+        /**
+         * Makes every authenticated, non-background reply carry {@code token} as the renewed session token.
+         */
+        void renewTokensWith(String token) {
+            this.renewedToken = token;
+        }
+
+        /**
+         * @return the requests that carried the background header, as {@code METHOD /path}, oldest first
+         */
+        List<String> backgroundRequests() {
+            return List.copyOf(backgroundRequests);
         }
 
         void registerBytes(String path, String contentType, byte[] responseBody) {
@@ -1162,7 +1294,7 @@ class CliIntegrationUTC {
         outBytes.reset();
         app.run(new String[]{ "--debug-completion" });
         assertTrue(outBytes.toString(StandardCharsets.UTF_8)
-            .contains("Usage: vempain-file-cli"), "root options without a command print the usage");
+            .contains("Usage: vf-cli"), "root options without a command print the usage");
         assertTrue(errBytes.toString(StandardCharsets.UTF_8)
             .isBlank());
     }

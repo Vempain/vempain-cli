@@ -49,7 +49,7 @@ class VempainFileCliApplicationUTC {
         }
 
         assertTrue(stdout.toString(StandardCharsets.UTF_8)
-            .contains("Usage: vempain-file-cli"), stdout.toString(StandardCharsets.UTF_8));
+            .contains("Usage: vf-cli"), stdout.toString(StandardCharsets.UTF_8));
     }
 
     @Test

@@ -13,5 +13,6 @@ description: Build and test the Vempain CLI (Gradle, stub HTTP server tests, hea
 - Java is indented with 4 spaces and has a 160-column limit (`.editorconfig`, `.config/eclipse-formatter.xml`); do not mass-reformat. Lombok is not used here.
 - Packaging: `packaging/rpm/vempain-file-cli.spec`, wrapper `vf-cli`, workflow `.github/workflows/rpm-cli.yaml` delegating to
   `rpm-cli-package.yaml` of `vempain-workflows`; keep `spec_file`, `jar_path` and `wrapper_script_path` in sync when paths change.
-- Historical names (`vempain-file-cli` RPM, `vf-cli`, `VempainFileCliApplication`, `~/.config/vempain-file-cli/`) stay for compatibility.
+- Historical names (`vempain-file-cli` RPM, `vf-cli`, `VempainFileCliApplication`) stay for compatibility; the tool serves both backends. Local
+  state lives only in `~/.config/vempain-cli/` (`core.CliHome` migrates the old `~/.config/vempain-file-cli/session.json` and `~/.vempain/history`).
 - Report tests run and failures from `build/test-results/test/`.

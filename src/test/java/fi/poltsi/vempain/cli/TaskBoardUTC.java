@@ -20,6 +20,7 @@ import fi.poltsi.vempain.cli.core.TaskProgress;
 import fi.poltsi.vempain.cli.tui.TaskBoard;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -84,15 +85,86 @@ class TaskBoardUTC {
             .toList());
         var admin = snapshot.get(1);
         assertEquals(SessionStore.BACKEND_ADMIN, admin.backend());
-        assertTrue(admin.error()
-            .contains("HTTP 401"));
+        assertEquals("session no longer valid, log in again (HTTP 401)", admin.error());
 
         var lines = TaskBoard.lines(snapshot);
         assertEquals(3, lines.size());
         assertEquals("[file] RUNNING     40%  Scanning originals (4/10)", lines.get(0));
         assertEquals("[file] QUEUED       0%  PUBLISH_FILE", lines.get(1));
-        assertTrue(lines.get(2)
-            .startsWith("[admin] tasks unavailable: GET "));
+        assertEquals("[admin] tasks unavailable: session no longer valid, log in again (HTTP 401)", lines.get(2));
+    }
+
+    @Test
+    void refresh_pollsAsBackgroundRequestsThatDoNotRenewTheSession() throws Exception {
+        var backgroundHeader = new java.util.concurrent.atomic.AtomicReference<String>();
+        server.createContext("/file/api/tasks", exchange -> {
+            backgroundHeader.set(exchange.getRequestHeaders()
+                .getFirst(HttpTransport.BACKGROUND_REQUEST_HEADER));
+            var bytes = "[]".getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, bytes.length);
+            exchange.getResponseBody()
+                .write(bytes);
+            exchange.close();
+        });
+        var sessionStore = new SessionStore();
+        sessionStore.save(SessionStore.BACKEND_FILE, baseUrl("file"), "file-jwt");
+
+        new TaskBoard(sessionStore, new TaskClient(new HttpTransport())).refresh();
+
+        assertEquals("true", backgroundHeader.get());
+    }
+
+    @Test
+    void refresh_stopsPollingABackendThatAnsweredForbiddenUntilANewLogin() throws Exception {
+        var calls = new java.util.concurrent.atomic.AtomicInteger();
+        server.createContext("/admin/api/tasks", exchange -> {
+            calls.incrementAndGet();
+            var token = exchange.getRequestHeaders()
+                .getFirst("Authorization");
+            var ok = "Bearer fresh-jwt".equals(token);
+            var bytes = (ok ? "[]" : "{\"error\":\"Forbidden\"}").getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(ok ? 200 : 403, bytes.length);
+            exchange.getResponseBody()
+                .write(bytes);
+            exchange.close();
+        });
+        respond("/file/api/tasks", 500, "{\"error\":\"down\"}");
+        var sessionStore = new SessionStore();
+        sessionStore.save(SessionStore.BACKEND_FILE, baseUrl("file"), "file-jwt");
+        sessionStore.save(SessionStore.BACKEND_ADMIN, baseUrl("admin"), "stale-jwt");
+        var board = new TaskBoard(sessionStore, new TaskClient(new HttpTransport()));
+
+        var first = board.refresh();
+        assertEquals(1, calls.get());
+        assertEquals("session no longer valid, log in again (HTTP 403)", first.get(1)
+            .error());
+        assertTrue(board.isSessionRejected(SessionStore.BACKEND_ADMIN));
+        assertFalse(board.isSessionRejected(SessionStore.BACKEND_FILE), "other failures are not a rejected session");
+        assertTrue(first.getFirst()
+            .error()
+            .contains("HTTP 500"),
+                "other failures keep their message: "
+                        + first.getFirst()
+                            .error());
+
+        var second = board.refresh();
+        assertEquals(1, calls.get(), "the rejected session is not sent again");
+        assertEquals("session no longer valid, log in again", second.get(1)
+            .error());
+        assertEquals("[admin] tasks unavailable: session no longer valid, log in again", TaskBoard.lines(second)
+            .get(1));
+
+        sessionStore.save(SessionStore.BACKEND_ADMIN, baseUrl("admin"), "fresh-jwt");
+        var third = board.refresh();
+        assertEquals(2, calls.get(), "a new login resumes the polling");
+        assertNull(third.get(1)
+            .error());
+        assertFalse(board.isSessionRejected(SessionStore.BACKEND_ADMIN));
+
+        sessionStore.clear(SessionStore.BACKEND_ADMIN);
+        assertFalse(board.isSessionRejected(SessionStore.BACKEND_ADMIN), "no session, nothing rejected");
+        assertEquals(1, board.refresh()
+            .size());
     }
 
     @Test
@@ -155,7 +227,7 @@ class TaskBoardUTC {
         var failing = new TaskClient(new HttpTransport()) {
 
             @Override
-            public List<TaskProgress> list(SessionStore.Session session) {
+            public List<TaskProgress> list(SessionStore.Session session, boolean background) {
                 throw new IllegalStateException();
             }
         };
@@ -174,5 +246,17 @@ class TaskBoardUTC {
         var lines = TaskBoard.lines(new TaskBoard(sessionStore, new TaskClient(new HttpTransport())).refresh());
 
         assertEquals(List.of("[file] RUNNING      5%  t-9"), lines);
+    }
+
+    @Test
+    void lines_showTheRemainingTimeEstimateOfARunningTask() throws Exception {
+        respond("/file/api/tasks", 200, "[{\"task_id\":\"t-9\",\"title\":\"Scan\",\"status\":\"RUNNING\",\"percent\":25,\"total_steps\":4,"
+                + "\"completed_steps\":1,\"estimated_remaining_seconds\":95}]");
+        var sessionStore = new SessionStore();
+        sessionStore.save(SessionStore.BACKEND_FILE, baseUrl("file"), "file-jwt");
+
+        var lines = TaskBoard.lines(new TaskBoard(sessionStore, new TaskClient(new HttpTransport())).refresh());
+
+        assertEquals(List.of("[file] RUNNING     25%  Scan (1/4)  ~2 min left"), lines);
     }
 }

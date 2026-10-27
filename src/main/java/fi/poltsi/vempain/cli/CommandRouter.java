@@ -89,6 +89,8 @@ public class CommandRouter {
         this.err = err;
         this.passwordReader = passwordReader;
         this.commandHistory = commandHistory;
+        // Every command the user runs renews the session; the renewed token replaces the stored one (on disk or in memory)
+        transport.setTokenRenewalListener(this::adoptRenewedToken);
         var taskClient = new TaskClient(transport);
         var taskMonitor = taskMonitorFactory.apply(taskClient);
         this.fileCommands = new FileCommands(sessionStore, transport, out, taskMonitor);
@@ -154,7 +156,7 @@ public class CommandRouter {
         var console = new DefaultConsole(out);
         var jc = JCommander.newBuilder()
             .console(console)
-            .programName("vempain-file-cli")
+            .programName("vf-cli")
             .addObject(root)
             .addCommand("login", login)
             .addCommand("files-list", list)
@@ -284,6 +286,7 @@ public class CommandRouter {
             }
         } finally {
             shellMode = previousShellMode;
+            sessionStore.discardInMemorySessions();
         }
     }
 
@@ -329,11 +332,24 @@ public class CommandRouter {
         }
         var tui = new TuiShell(terminal, sessionStore, new TaskClient(transport), history, pollInterval);
         var router = new CommandRouter(sessionStore, transport, tui.out(), tui.err(), tui.passwordReader(), commandHistory, tui::taskMonitor);
-        tui.run(line -> router.runShellLine(line, debugCompletion), router::shellPrompt, router.createCompleter(true, debugCompletion));
+        try {
+            tui.run(line -> router.runShellLine(line, debugCompletion), router::shellPrompt, router.createCompleter(true, debugCompletion));
+        } finally {
+            // Sessions created by a login inside the TUI must not outlive it.
+            sessionStore.discardInMemorySessions();
+        }
     }
 
     public Completer createCompleter(boolean shellCompleterMode, boolean debugCompletion) {
         return new CliCompleter(shellCompleterMode, debugCompletion);
+    }
+
+    private void adoptRenewedToken(SessionStore.Session session, String token, String expiresAt) {
+        try {
+            sessionStore.renewToken(session.backend(), session.token(), token);
+        } catch (IOException e) {
+            err.println("Warning: could not store the renewed session: " + e.getMessage());
+        }
     }
 
     private void login(LoginCommand command) throws Exception {
@@ -348,8 +364,21 @@ public class CommandRouter {
         }
         var version = transport.getJson(baseUrl, "/version", token);
         BackendVersionValidator.validate(version);
+        if (shellMode) {
+            // A login inside the shell or TUI invalidates the sessions stored on disk; from here on the sessions live only in this process
+            // and are gone when the shell exits.
+            sessionStore.keepSessionsInMemory();
+        }
         sessionStore.save(backend, baseUrl, token);
-        out.println("Login successful. Session saved for backend '" + backend + "' at " + baseUrl);
+        if (sessionStore.isInMemory()) {
+            out.println("Login successful. Session for backend '"
+                    + backend
+                    + "' at "
+                    + baseUrl
+                    + " is kept in memory until the shell exits; the sessions stored on disk were removed.");
+        } else {
+            out.println("Login successful. Session saved for backend '" + backend + "' at " + baseUrl);
+        }
     }
 
     private void logout() throws Exception {
@@ -399,6 +428,7 @@ public class CommandRouter {
 
         if (command.raw) {
             var json = new org.json.JSONObject().put("active_backend", activeBackend)
+                .put("in_memory", sessionStore.isInMemory())
                 .put("backends", new org.json.JSONObject());
             if (file != null) {
                 json.getJSONObject("backends")
@@ -413,7 +443,8 @@ public class CommandRouter {
         }
 
         out.println("Active backend: " + activeBackend + " (logged in)");
-        out.println("Stored sessions:");
+        out.println(
+                sessionStore.isInMemory() ? "Sessions kept in memory until the shell exits (the stored sessions were removed at login):" : "Stored sessions:");
         out.println("  file:  " + (file == null ? "not logged in" : file.baseUrl()));
         out.println("  admin: " + (admin == null ? "not logged in" : admin.baseUrl()));
     }

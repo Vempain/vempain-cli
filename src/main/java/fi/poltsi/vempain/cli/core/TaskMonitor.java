@@ -61,7 +61,8 @@ public class TaskMonitor {
                 return progress;
             }
             Thread.sleep(Math.max(50, interval.toMillis()));
-            progress = taskClient.get(session, taskId);
+            // The polls after the user's command are background reads: they do not keep the session alive
+            progress = taskClient.get(session, taskId, true);
         }
     }
 
@@ -94,7 +95,9 @@ public class TaskMonitor {
         lines.add("Vempain task monitor (press c to cancel, Esc to leave)");
         lines.add(progress.title()
             .isBlank() ? progress.taskId() : progress.title());
-        lines.add("Status: " + progress.status() + "    Progress: " + progress.percent() + "%");
+        var remaining = progress.remainingTimeText()
+            .isEmpty() ? "" : "    Remaining: " + progress.remainingTimeText();
+        lines.add("Status: " + progress.status() + "    Progress: " + progress.percent() + "%" + remaining);
         lines.add("Steps: "
                 + progress.completedSteps()
                 + "/"

@@ -1,7 +1,7 @@
 Name:           vempain-file-cli
 Version:        0.0.0
 Release:        1%{?dist}
-Summary:        Vempain System command-line client
+Summary:        Vempain command-line client for the file and admin backends
 
 License:        GPL-2.0-only
 URL:            https://github.com/Vempain/vempain-cli
@@ -11,7 +11,8 @@ BuildArch:      noarch
 Requires:       java-25-openjdk-headless
 
 %description
-Command-line utility for the Vempain System.
+Command-line client (vf-cli) for the Vempain File and Vempain Admin backends.
+The package keeps its historical name; it is not limited to the file backend.
 
 %prep
 %setup -q

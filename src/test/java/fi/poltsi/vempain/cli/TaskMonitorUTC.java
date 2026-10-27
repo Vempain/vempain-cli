@@ -64,6 +64,8 @@ class TaskMonitorUTC {
         server.registerJsonSequence("/api/tasks/task-1", RUNNING, COMPLETED);
 
         var progress = monitor().monitor(session, "task-1", Duration.ofMillis(10));
+        // The first read is the user's command, the polls after it are background requests that do not keep the session alive
+        assertEquals(java.util.List.of("GET /api/tasks/task-1"), server.backgroundRequests());
 
         assertEquals("COMPLETED", progress.status());
         assertEquals(List.of("GET /api/tasks/task-1", "GET /api/tasks/task-1"), server.requests());
@@ -118,6 +120,13 @@ class TaskMonitorUTC {
         assertEquals(List.of("GET /api/tasks/task-1"), server.requests());
         assertEquals("Message: Working on /music", screen().get(4)
             .trim());
+    }
+
+    @Test
+    void lines_showTheRemainingTimeEstimateWhileRunning() {
+        var lines = TaskMonitor.lines(TaskProgress.fromJson(new JSONObject(RUNNING).put("estimated_remaining_seconds", 3900)));
+
+        assertEquals("Status: RUNNING    Progress: 40%    Remaining: ~1 h 5 min", lines.get(2));
     }
 
     @Test

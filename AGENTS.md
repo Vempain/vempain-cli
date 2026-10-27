@@ -3,21 +3,28 @@
 ## Purpose
 
 `vempain-cli` is the standalone command-line client for the Vempain backends. It talks to both the file backend and the admin backend over their
-REST APIs, keeps a backend-scoped JWT session on disk, and ships as an executable fat JAR (`vf-cli.jar`) plus an RPM wrapper.
+REST APIs, keeps a backend-scoped JWT session on disk, and ships as an executable fat JAR (`vf-cli.jar`) plus an RPM wrapper. Describe it as
+the client of both backends; it is not a file-backend tool.
 
-Historical names are kept for compatibility: the RPM is `vempain-file-cli`, the wrapper is `vf-cli`, the main class is `VempainFileCliApplication`,
-and sessions live under `~/.config/vempain-file-cli/`. Do not rename these without a migration plan for installed users.
+Historical names are kept for compatibility: the RPM is `vempain-file-cli`, the installed command (and the usage's program name) is `vf-cli`,
+and the main class is `VempainFileCliApplication`. Do not rename these without a migration plan for installed users. All local state lives in
+`~/.config/vempain-cli/` (`core.CliHome`: `session.json` and `history`); the old locations `~/.config/vempain-file-cli/session.json` and
+`~/.vempain/history` are migrated from (moved) on first use and must not be written to again.
 
 ## Repository layout
 
-|                     Path                     |                                                  Purpose                                                   |
-|----------------------------------------------|------------------------------------------------------------------------------------------------------------|
-| `src/main/java/fi/poltsi/vempain/cli/`       | `VempainFileCliApplication` (entry point) and `CommandRouter` (JCommander)                                 |
-| `src/main/java/fi/poltsi/vempain/cli/core/`  | `HttpTransport`, `SessionStore`, `OutputFormatter`, `PasswordReader`, `CliException`, `LocalPathCompleter` |
-| `src/main/java/fi/poltsi/vempain/cli/file/`  | File-backend commands (`FileCommands`)                                                                     |
-| `src/main/java/fi/poltsi/vempain/cli/admin/` | Admin-backend commands (`AdminCommands`)                                                                   |
-| `src/main/java/fi/poltsi/vempain/cli/task/`  | Task commands (`TaskCommands`: list, monitor, cancel)                                                      |
-| `src/main/java/fi/poltsi/vempain/cli/tui/`   | Lanterna TUI of `shell` (`TuiShell`, `TaskBoard`, `TuiTaskMonitor`)                                        |
+|                     Path                     |                                                                                Purpose                                                                                |
+|----------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `src/main/java/fi/poltsi/vempain/cli/`       | `VempainFileCliApplication` (entry point) and `CommandRouter` (JCommander)                                                                                            |
+| `src/main/java/fi/poltsi/vempain/cli/core/`  | `HttpTransport`, `SessionStore`, `CommandHistory`, `CliHome` (state directory + migration), `OutputFormatter`, `PasswordReader`, `CliException`, `LocalPathCompleter` |
+| `src/main/java/fi/poltsi/vempain/cli/file/`  | File-backend commands (`FileCommands`)                                                                                                                                |
+| `src/main/java/fi/poltsi/vempain/cli/admin/` | Admin-backend commands (`AdminCommands`)                                                                                                                              |
+| `src/main/java/fi/poltsi/vempain/cli/task/`  | Task commands (`TaskCommands`: list, monitor, cancel)                                                                                                                 |
+| `src/main/java/fi/poltsi/vempain/cli/tui/`   | Lanterna TUI of `shell` (`TuiShell`, `TaskBoard`, `TuiTaskMonitor`)                                                                                                   |
+
+`core.TaskProgress` mirrors the backend's snapshot (`vempain-common-api` `TaskProgressResponse`, snake_case) and formats its
+`estimated_remaining_seconds` as a coarse text (`remainingTimeText`: `< 1 min`, `~2 min`, `~1 h 5 min`); the task board, the task monitor and
+`tasks list` append it while the backend provides one (running tasks with at least one completed step), never when it is null.
 | `src/test/java/fi/poltsi/vempain/cli/`       | `*UTC` tests driven by an in-process JDK `HttpServer` stub                                                 |
 | `packaging/rpm/vempain-file-cli.spec`        | RPM spec consumed by the reusable `rpm-cli-package.yaml` workflow                                          |
 | `vf-cli`                                     | Shell wrapper installed by the RPM as `/usr/bin/vf-cli`                                                    |
@@ -32,7 +39,10 @@ and sessions live under `~/.config/vempain-file-cli/`. Do not rename these witho
   word containing whitespace because `splitArgs` only understands quotes, not backslash escapes.
 - `shell` opens the full-screen Lanterna TUI (`tui.TuiShell`) when stdin/stdout are a terminal, otherwise the line based JLine shell. The TUI
   shows the session window (upper left: login state per backend) and the running tasks window (upper right: `tui.TaskBoard` polls
-  `GET /tasks` of every logged-in backend and keeps the unfinished tasks) above the output window and command line. Commands typed there run
+  `GET /tasks` of every logged-in backend and keeps the unfinished tasks) above the output window and command line. A backend that answers
+  the poll with 401/403 (`core.HttpStatusException.isSessionRejected`) is not polled again with that token: the board remembers the rejected
+  token, the tasks window says `session no longer valid, log in again`, the session window shows `session invalid`, and polling resumes
+  as soon as a new login stores another token. Commands typed there run
   through a second `CommandRouter` whose output, password prompt (masked dialog) and task monitor (`tui.TuiTaskMonitor`, which points at the
   tasks window instead of opening the full-screen `core.TaskMonitor`) are bound to the TUI. Lanterna owns the GUI thread; commands run on one
   command thread and the task poller on another, and they touch components only through `invokeLater`/`invokeAndWait`.
@@ -51,8 +61,17 @@ and sessions live under `~/.config/vempain-file-cli/`. Do not rename these witho
   modified after that release); the page and site file listings take the same flag (`PagePagedRequest`,
   `SiteFilePagedRequest`) should a command list them.
 - `core.HttpTransport` is the only HTTP client: login, JSON endpoints (`getJson`, `postJson`, `patchJson`) and byte content. Tests instantiate it directly.
-- `core.SessionStore` persists one session per backend (`file`, `admin`) and the active backend in `session.json`; it still reads the legacy
-  single-session file format.
+  Sessions slide: a response carrying `X-Vempain-Token` (the backends renew the session on every request the user triggered) is reported to
+  the `TokenRenewalListener` that `CommandRouter` registers, which stores the token through `SessionStore.renewToken` (the active backend
+  is kept, a stale renewal of a replaced token is ignored). Reads that are polls, not user actions, pass `background = true`
+  (`TaskClient.list/get(session, ..., true)`: the TUI `TaskBoard` and the polls of `TaskMonitor` after its first read); they carry
+  `X-Vempain-Background: true` and the backend does not renew for them. `CliIntegrationUTC.MockApiServer.renewTokensWith` and
+  `backgroundRequests()` cover both sides in tests.
+- `core.SessionStore` persists one session per backend (`file`, `admin`) and the active backend in `session.json` under `core.CliHome`; it still
+  reads the legacy single-session file format. A `login` inside the shell or TUI (`CommandRouter.login` with `shellMode`) calls `keepSessionsInMemory()`:
+  the file is deleted (stored sessions are invalidated) and every session is held in the store instance only, until `runShell`/`runTuiShell`
+  end with `discardInMemorySessions()`. `session show` and the TUI session window (`logged in (memory)`) tell the mode apart. Only a
+  one-shot `login` writes the file.
 - JSON handling uses `org.json` (`JSONObject`/`JSONArray`). Typed DTOs from the published `vempain-*-api` artifacts are not used yet; the commented
   dependencies in `build.gradle` show how to enable them.
 
