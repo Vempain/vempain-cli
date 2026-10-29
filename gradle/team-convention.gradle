@@ -5,6 +5,8 @@
 // .config/ (formatter profile, import order, Checkstyle). Written in Groovy so one file serves both DSLs and needs
 // no buildSrc or included build: it brings the Spotless plugin onto its own classpath.
 
+import org.gradle.api.artifacts.result.ResolvedComponentResult
+import org.gradle.api.artifacts.result.ResolvedDependencyResult
 import org.gradle.util.GradleVersion
 
 buildscript {
@@ -69,7 +71,12 @@ allprojects { proj ->
         // Every project that declares a version must declare the same one. A project without a version ('unspecified', Gradle's
         // default) is left out: a multi-project build whose root has no build file, or whose root only hosts the subprojects, is fine.
         def moduleVersions = rootProject.allprojects.findAll { it.version.toString() != 'unspecified' }.collectEntries { [(it.path): it.version.toString()] }
-        def classpaths = proj.configurations.matching { it.canBeResolved && it.name.endsWith('Classpath') }
+        // The resolved graphs of the project's classpaths, as providers of their root components: the task action must hold no
+        // live Configuration objects for the configuration cache, which serializes ResolvedComponentResult graphs instead.
+        def resolvedRoots = proj.objects.listProperty(ResolvedComponentResult)
+        proj.configurations.matching { it.canBeResolved && it.name.endsWith('Classpath') }.all { cfg ->
+            resolvedRoots.add(cfg.incoming.resolutionResult.rootComponent)
+        }
         inputs.property('version', projectVersion)
         inputs.property('moduleVersions', moduleVersions)
         doLast {
@@ -77,13 +84,29 @@ allprojects { proj ->
                 throw new GradleException("[team-convention] module versions differ: ${moduleVersions}; all modules must converge on one version.")
             }
             if (!projectVersion.endsWith('-SNAPSHOT')) {
-                def snapshots = classpaths.collectMany { c ->
-                    c.incoming.resolutionResult.allComponents
-                        .findAll { it.id instanceof ModuleComponentIdentifier && it.moduleVersion?.version?.endsWith('-SNAPSHOT') }
-                        .collect { it.moduleVersion.toString() }
-                }.unique().sort()
+                def snapshots = [] as Set
+                resolvedRoots.get().each { root ->
+                    // walk the graph from the root component; a component is visited once
+                    def seen = new HashSet()
+                    def queue = new ArrayDeque()
+                    queue.add(root)
+                    while (!queue.isEmpty()) {
+                        def component = queue.poll()
+                        if (!seen.add(component.id)) {
+                            continue
+                        }
+                        if (component.id instanceof ModuleComponentIdentifier && component.moduleVersion?.version?.endsWith('-SNAPSHOT')) {
+                            snapshots.add(component.moduleVersion.toString())
+                        }
+                        component.dependencies.each { dependency ->
+                            if (dependency instanceof ResolvedDependencyResult) {
+                                queue.add(dependency.selected)
+                            }
+                        }
+                    }
+                }
                 if (snapshots) {
-                    throw new GradleException("[team-convention] Release version ${projectVersion} of ${projectPath} depends on SNAPSHOT artifacts: ${snapshots.join(', ')}")
+                    throw new GradleException("[team-convention] Release version ${projectVersion} of ${projectPath} depends on SNAPSHOT artifacts: ${snapshots.sort().join(', ')}")
                 }
             }
         }
@@ -138,6 +161,16 @@ rootProject.spotless {
         trimTrailingWhitespace()
         endWithNewline()
     }
+}
+
+// Spotless tasks run after every `clean` of the build (diffplug/spotless#3067, open as of Spotless 8.10.4): the plugin attaches a
+// doLast to each project's `clean` that closes the cached formatter classloaders, and with the configuration cache Gradle runs the
+// tasks of one invocation in parallel, so `./gradlew clean build` let a `clean` close the loader a `spotless*` task of another project
+// was still using (intermittent "AGENTS.md:LINE_UNDEFINED flexmark-java(NoClassDefFoundError|InvocationTargetException)" lint).
+// Ordering only: nothing depends on `clean`, and a build without it is unaffected. Remove once Spotless evicts instead of closes.
+def cleanTasks = rootProject.allprojects.collect { p -> p.tasks.matching { it.name == 'clean' } }
+allprojects { proj ->
+    proj.tasks.withType(com.diffplug.gradle.spotless.SpotlessTask).configureEach { mustRunAfter cleanTasks }
 }
 
 // ============================================================

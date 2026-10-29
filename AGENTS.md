@@ -125,3 +125,15 @@ in `~/.gradle/gradle.properties` for GitHub Packages.
 
 Tags are metadata, not ACL-bearing resources. Tag entities have no ACL information, so tag list, search, and mutation endpoints must not perform ACL checks on
 tags. ACL checks apply only to resources that explicitly carry an ACL.
+
+## Gradle configuration cache
+
+`org.gradle.configuration-cache=true` in `gradle.properties` stores the configured task graph and reuses it when the build inputs are
+unchanged ("Reusing configuration cache"), so the build scripts must stay compatible with it: no `Project`, `Configuration` or other live
+build model inside a task action (`doLast`/`doFirst`), only task inputs, properties and providers captured while configuring (see
+`verifyBuildConstraints` in `gradle/team-convention.gradle`, which collects the `rootComponent` providers of the classpaths and walks the
+resolved graphs at execution instead of resolving configurations there). Gradle reports a violation as "problem was found storing the
+configuration cache" and fails the build; `--no-configuration-cache` only hides it for one run, fix the script instead. The cache lives in
+`.gradle/configuration-cache/` (ignored). Because the cache also runs the tasks of one invocation in parallel, `gradle/team-convention.gradle`
+orders every Spotless task after every `clean` task (Spotless closes its formatter classloaders in `clean`, diffplug/spotless#3067);
+without that `./gradlew clean build` intermittently fails `spotlessFlexmarkCheck` with a `LINE_UNDEFINED flexmark-java(NoClassDefFoundError)` lint.
