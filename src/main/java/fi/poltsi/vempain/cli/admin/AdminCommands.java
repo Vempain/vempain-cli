@@ -1,7 +1,12 @@
 package fi.poltsi.vempain.cli.admin;
 
 import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.LinkedHashSet;
 import java.util.Locale;
+import java.util.Set;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -127,6 +132,43 @@ public class AdminCommands {
         monitor(response, session, command.monitor);
     }
 
+    public void publishSiteFiles(AdminPublishSiteFilesCommand command, SessionStore.Session session) throws Exception {
+        var ids = readIds(command.idsFile, "site file ID");
+        var request = new JSONObject().put("file_ids", new JSONArray(ids));
+        var response = transport.postJson(session, "/content-management/file/site-files/publish-selected", request);
+        out.printf("Submitted %d site file IDs for publishing.%n", ids.size());
+        out.println(response.toString(2));
+        monitor(response, session, command.monitor);
+    }
+
+    private Set<Long> readIds(String idsFile, String label) throws Exception {
+        var ids = new LinkedHashSet<Long>();
+        int lineNumber = 0;
+        try (var lines = Files.lines(Path.of(idsFile), StandardCharsets.UTF_8)) {
+            for (var line : (Iterable<String>) lines::iterator) {
+                lineNumber++;
+                var value = line.trim();
+                if (value.isBlank()
+                    || value.startsWith("#")) {
+                    continue;
+                }
+                try {
+                    var id = Long.parseLong(value);
+                    if (id <= 0) {
+                        throw new NumberFormatException();
+                    }
+                    ids.add(id);
+                } catch (NumberFormatException e) {
+                    throw new IllegalArgumentException("Invalid " + label + " at " + idsFile + ":" + lineNumber + ": " + value);
+                }
+            }
+        }
+        if (ids.isEmpty()) {
+            throw new IllegalArgumentException("The file contains no positive " + label + "s: " + idsFile);
+        }
+        return ids;
+    }
+
     private void monitor(JSONObject response, SessionStore.Session session, boolean requested) throws Exception {
         if (!requested) {
             return;
@@ -177,6 +219,15 @@ public class AdminCommands {
 
         @Parameter(names = { "--ids" }, required = true, description = "Comma-separated list of gallery IDs")
         public String ids;
+        @Parameter(names = "--monitor", description = "Open the full-screen task monitor after submission")
+        public boolean monitor;
+    }
+
+    @Parameters(commandDescription = "Publish site files listed in a UTF-8 file, one site file ID per line")
+    public static class AdminPublishSiteFilesCommand {
+
+        @Parameter(names = { "--ids-file" }, required = true, description = "File containing one site file ID per line")
+        public String idsFile;
         @Parameter(names = "--monitor", description = "Open the full-screen task monitor after submission")
         public boolean monitor;
     }
