@@ -789,7 +789,7 @@ class CliIntegrationUTC {
                 optionValues(completer, "tag-rename"));
         assertEquals(Set.of("--tag", "--with", "--monitor"), optionValues(completer, "tag-replace"));
         assertEquals(Set.of("--group", "--key", "--value", "--new-value", "--remove", "--monitor"), optionValues(completer, "metadata-update"));
-        assertEquals(Set.of("list-groups", "publish-group", "publish-groups"), optionValues(completer, "admin"));
+        assertEquals(Set.of("list-groups", "publish-group", "publish-groups", "publish-site-files"), optionValues(completer, "admin"));
         assertEquals(Set.of("show", "use"), optionValues(completer, "session"));
         assertEquals(Set.of(), optionValues(completer, "logout"));
         assertEquals(Set.of(), optionValues(completer, "exit"));

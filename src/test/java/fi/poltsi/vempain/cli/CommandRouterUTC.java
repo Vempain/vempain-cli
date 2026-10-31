@@ -175,12 +175,14 @@ class CommandRouterUTC {
         var completer = completer();
 
         assertEquals(Set.of("list-groups"), complete(completer, List.of("admin", "li"), 1, "li"));
+        assertEquals(Set.of("publish-site-files"), complete(completer, List.of("admin", "publish-s"), 1, "publish-s"));
         assertEquals(Set.of("--details", "--search", "--page", "--size", "--modified-after-publish"),
                 complete(completer, List.of("admin", "list-groups", ""), 2, ""));
         assertEquals(Set.of("--message", "--monitor"), complete(completer, List.of("admin", "publish-group", "--m"), 2, "--m"));
         assertEquals(Set.of("--ids", "--monitor"), complete(completer, List.of("admin", "publish-groups", "--"), 2, "--"));
         assertEquals(Set.of("--ids", "--monitor"), complete(completer, List.of("admin", "publish-groups", "--", ""), 3, ""),
                 "a lone dash prefix asks for the options");
+        assertEquals(Set.of("--ids-file", "--monitor"), complete(completer, List.of("admin", "publish-site-files", "--"), 2, "--"));
         assertEquals(Set.of(), complete(completer, List.of("admin", "list-groups", "--search", "x"), 3, "x"), "option values are not completed");
         assertEquals(Set.of(), complete(completer, List.of("admin", "unknown", ""), 2, ""));
     }
