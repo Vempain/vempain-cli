@@ -51,7 +51,8 @@ public class CommandRouter {
     /**
      * The options whose value names a file of the local filesystem; their values are completed from the filesystem in both shells.
      */
-    private static final Map<String, List<String>> LOCAL_PATH_OPTIONS = Map.of("publish-files", List.of("--ids-file"));
+    private static final Map<String, List<String>> LOCAL_PATH_OPTIONS = Map.of("publish-files", List.of("--ids-file"), "publish-site-files",
+            List.of("--ids-file"));
 
     private static final Duration TASK_POLL_INTERVAL = Duration.ofSeconds(2);
 
@@ -656,7 +657,7 @@ public class CommandRouter {
         @SuppressWarnings("CyclomaticComplexity")
         private void completeAdminSubcommands(List<String> words, int wordIndex, String currentWord, List<Candidate> candidates) {
             if (wordIndex == 1) {
-                for (var sub : List.of("list-groups", "publish-group", "publish-groups")) {
+                for (var sub : List.of("list-groups", "publish-group", "publish-groups", "publish-site-files")) {
                     if (currentWord.isBlank()
                         || sub.startsWith(currentWord)) {
                         candidates.add(new Candidate(sub));
@@ -670,8 +671,16 @@ public class CommandRouter {
                 case "list-groups" -> List.of("--details", "--search", "--page", "--size", "--modified-after-publish");
                 case "publish-group" -> List.of("--id", "--message", "--publish-datetime", "--monitor");
                 case "publish-groups" -> List.of("--ids", "--monitor");
+                case "publish-site-files" -> List.of("--ids-file", "--monitor");
                 default -> List.<String>of();
             };
+
+            if ("publish-site-files".equals(subcommand)
+                && wantsLocalPathCompletion("publish-site-files", words, wordIndex, currentWord)) {
+                localPathCompleter.complete(currentWord, candidates);
+                debugCandidates(currentWord, candidates);
+                return;
+            }
 
             var previous = wordIndex > 0 ? words.get(Math.max(0, wordIndex - 1)) : "";
             var suggest = currentWord.isBlank()
