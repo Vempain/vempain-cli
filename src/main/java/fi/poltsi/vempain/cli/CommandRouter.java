@@ -141,6 +141,7 @@ public class CommandRouter {
         var adminListGroups = new AdminCommands.AdminListGroupsCommand();
         var adminPublishGroup = new AdminCommands.AdminPublishGroupCommand();
         var adminPublishGroups = new AdminCommands.AdminPublishGroupsCommand();
+        var adminPublishSiteFiles = new AdminCommands.AdminPublishSiteFilesCommand();
 
         var session = new SessionCommand();
         var sessionShow = new SessionShowCommand();
@@ -183,6 +184,7 @@ public class CommandRouter {
         adminJc.addCommand("list-groups", adminListGroups);
         adminJc.addCommand("publish-group", adminPublishGroup);
         adminJc.addCommand("publish-groups", adminPublishGroups);
+        adminJc.addCommand("publish-site-files", adminPublishSiteFiles);
         adminJc.setConsole(console);
 
         var sessionJc = jc.getCommands()
@@ -249,7 +251,7 @@ public class CommandRouter {
                     metadataUpdate.monitor |= shellMode;
                     fileCommands.updateMetadata(metadataUpdate);
                 }
-                case "admin" -> admin(adminJc, adminListGroups, adminPublishGroup, adminPublishGroups);
+                case "admin" -> admin(adminJc, adminListGroups, adminPublishGroup, adminPublishGroups, adminPublishSiteFiles);
                 case "tasks" -> taskCommands.list(tasks);
                 case "task-monitor" -> taskCommands.monitor(taskMonitor);
                 case "task-cancel" -> taskCommands.cancel(taskCancel);
@@ -388,7 +390,7 @@ public class CommandRouter {
     }
 
     private void admin(JCommander adminJc, AdminCommands.AdminListGroupsCommand listGroups, AdminCommands.AdminPublishGroupCommand publishGroup,
-            AdminCommands.AdminPublishGroupsCommand publishGroups) throws Exception {
+            AdminCommands.AdminPublishGroupsCommand publishGroups, AdminCommands.AdminPublishSiteFilesCommand publishSiteFiles) throws Exception {
         var subCommand = adminJc.getParsedCommand();
         if (subCommand == null) {
             adminJc.usage();
@@ -403,6 +405,10 @@ public class CommandRouter {
             case "publish-groups" -> {
                 publishGroups.monitor |= shellMode;
                 adminCommands.publishGroups(publishGroups, requireSession(SessionStore.BACKEND_ADMIN));
+            }
+            case "publish-site-files" -> {
+                publishSiteFiles.monitor |= shellMode;
+                adminCommands.publishSiteFiles(publishSiteFiles, requireSession(SessionStore.BACKEND_ADMIN));
             }
             default -> adminJc.usage();
         }

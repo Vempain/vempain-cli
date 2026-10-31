@@ -422,6 +422,7 @@ class CliIntegrationUTC {
                                     """);
             adminServer.registerJson("/api/content-management/galleries/publish", "[{\"result\":\"OK\",\"message\":\"done\"}]");
             adminServer.registerJson("/api/content-management/galleries/publish-selected", "[{\"result\":\"OK\",\"message\":\"done\"}]");
+            adminServer.registerJson("/api/content-management/file/site-files/publish-selected", "{\"task_id\":\"site-publish-1\",\"status\":\"QUEUED\"}");
 
             var outBytes = new ByteArrayOutputStream();
             var errBytes = new ByteArrayOutputStream();
@@ -433,6 +434,9 @@ class CliIntegrationUTC {
             app.run(new String[]{ "admin", "list-groups" });
             app.run(new String[]{ "admin", "publish-group", "--id", "7", "--message", "publish now" });
             app.run(new String[]{ "admin", "publish-groups", "--ids", "7,8" });
+            var siteFileIds = tempHome.resolve("site-file-ids.txt");
+            Files.writeString(siteFileIds, "12\n13\n");
+            app.run(new String[]{ "admin", "publish-site-files", "--ids-file", siteFileIds.toString() });
 
             var output = outBytes.toString(StandardCharsets.UTF_8);
             assertTrue(output.contains("backend 'admin'"));
@@ -440,6 +444,9 @@ class CliIntegrationUTC {
             assertTrue(output.contains("short_name"));
             assertTrue(output.contains("Summer"));
             assertTrue(output.contains("\"result\": \"OK\""));
+            assertTrue(output.contains("Submitted 2 site file IDs"));
+            assertTrue(adminServer.requests()
+                .contains("POST /api/content-management/file/site-files/publish-selected"));
             assertTrue(errBytes.toString(StandardCharsets.UTF_8)
                 .isBlank());
         }
