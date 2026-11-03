@@ -97,7 +97,7 @@ class CliIntegrationUTC {
             var app = new VempainFileCliApplication(new SessionStore(), new HttpTransport(), new PrintStream(outBytes), new PrintStream(errBytes), mockReader);
 
             app.run(new String[]{ "login", "--url", server.baseUrl(), "--username", "admin" });
-            app.run(new String[]{ "files-list", "--type", "music", "--size", "10" });
+            app.run(new String[]{ "file", "list", "--type", "music", "--size", "10" });
 
             var output = outBytes.toString(StandardCharsets.UTF_8);
             assertTrue(output.contains("Login successful"));
@@ -130,13 +130,13 @@ class CliIntegrationUTC {
             var outBytes = new ByteArrayOutputStream();
             var app = new VempainFileCliApplication(sessionStore, new HttpTransport(), new PrintStream(outBytes), System.err);
 
-            app.run(new String[]{ "file-show", "--type", "music", "--id", "42", "--content-limit", "10" });
+            app.run(new String[]{ "file", "show", "--type", "music", "--id", "42", "--content-limit", "10" });
             var truncatedOutput = outBytes.toString(StandardCharsets.UTF_8);
             assertTrue(truncatedOutput.contains("Metadata:"));
             assertTrue(truncatedOutput.contains("Content (truncated to 10 chars):"));
 
             outBytes.reset();
-            app.run(new String[]{ "file-show", "--type", "music", "--id", "42", "--raw", "--content-limit", "10" });
+            app.run(new String[]{ "file", "show", "--type", "music", "--id", "42", "--raw", "--content-limit", "10" });
             var rawOutput = outBytes.toString(StandardCharsets.UTF_8);
             assertTrue(rawOutput.contains("\"filename\": \"song.txt\""));
             assertFalse(rawOutput.contains("Content (truncated to 10 chars):"));
@@ -156,12 +156,12 @@ class CliIntegrationUTC {
             var completer = app.createCompleterForTests();
 
             var typeCandidates = new ArrayList<Candidate>();
-            completer.complete(null, new StubParsedLine(List.of("file-show", "--type", "m"), 2, "m"), typeCandidates);
+            completer.complete(null, new StubParsedLine(List.of("file", "show", "--type", "m"), 3, "m"), typeCandidates);
             assertTrue(typeCandidates.stream()
                 .anyMatch(c -> "music".equals(c.value())));
 
             var pathCandidates = new ArrayList<Candidate>();
-            completer.complete(null, new StubParsedLine(List.of("scan", "--original-directory", "/mu"), 2, "/mu"), pathCandidates);
+            completer.complete(null, new StubParsedLine(List.of("file", "scan", "--original-directory", "/mu"), 3, "/mu"), pathCandidates);
             assertTrue(pathCandidates.stream()
                 .anyMatch(c -> "/music/".equals(c.value())));
         }
@@ -179,7 +179,7 @@ class CliIntegrationUTC {
             var completer = app.createShellCompleterForTests();
 
             var candidates = new ArrayList<Candidate>();
-            completer.complete(null, new StubParsedLine(List.of("scan", "-o", "/m"), 2, "/m"), candidates);
+            completer.complete(null, new StubParsedLine(List.of("file", "scan", "-o", "/m"), 3, "/m"), candidates);
 
             assertEquals(1, candidates.size());
             assertEquals("/music/", candidates.get(0)
@@ -204,12 +204,12 @@ class CliIntegrationUTC {
             var completer = app.createShellCompleterForTests();
 
             var firstLevel = new ArrayList<Candidate>();
-            completer.complete(null, new StubParsedLine(List.of("scan", "-o", "/mu"), 2, "/mu"), firstLevel);
+            completer.complete(null, new StubParsedLine(List.of("file", "scan", "-o", "/mu"), 3, "/mu"), firstLevel);
             assertTrue(firstLevel.stream()
                 .anyMatch(c -> "/music/".equals(c.value())));
 
             var secondLevel = new ArrayList<Candidate>();
-            completer.complete(null, new StubParsedLine(List.of("scan", "-o", "/music/"), 2, "/music/"), secondLevel);
+            completer.complete(null, new StubParsedLine(List.of("file", "scan", "-o", "/music/"), 3, "/music/"), secondLevel);
             assertTrue(secondLevel.stream()
                 .anyMatch(c -> "/music/Aavikko/".equals(c.value())));
             assertTrue(secondLevel.stream()
@@ -230,7 +230,7 @@ class CliIntegrationUTC {
             var completer = app.createShellCompleterForTests();
 
             var rootCandidates = new ArrayList<Candidate>();
-            completer.complete(null, new StubParsedLine(List.of("scan", "-o", ""), 2, ""), rootCandidates);
+            completer.complete(null, new StubParsedLine(List.of("file", "scan", "-o", ""), 3, ""), rootCandidates);
             assertTrue(rootCandidates.stream()
                 .anyMatch(c -> "/archive/".equals(c.value())));
             assertTrue(rootCandidates.stream()
@@ -239,13 +239,13 @@ class CliIntegrationUTC {
                 .anyMatch(c -> "/video/".equals(c.value())));
 
             var narrowedCandidates = new ArrayList<Candidate>();
-            completer.complete(null, new StubParsedLine(List.of("scan", "-o", "/m"), 2, "/m"), narrowedCandidates);
+            completer.complete(null, new StubParsedLine(List.of("file", "scan", "-o", "/m"), 3, "/m"), narrowedCandidates);
             assertEquals(1, narrowedCandidates.size());
             assertEquals("/music/", narrowedCandidates.get(0)
                 .value());
 
             var childCandidates = new ArrayList<Candidate>();
-            completer.complete(null, new StubParsedLine(List.of("scan", "-o", "/music/"), 2, "/music/"), childCandidates);
+            completer.complete(null, new StubParsedLine(List.of("file", "scan", "-o", "/music/"), 3, "/music/"), childCandidates);
             assertTrue(childCandidates.stream()
                 .anyMatch(c -> "/music/Aavikko/".equals(c.value())));
             assertTrue(childCandidates.stream()
@@ -267,9 +267,63 @@ class CliIntegrationUTC {
             var errBytes = new ByteArrayOutputStream();
             var app = new VempainFileCliApplication(sessionStore, new HttpTransport(), new PrintStream(outBytes), new PrintStream(errBytes));
 
-            app.run(new String[]{ "publish-music" });
-            app.run(new String[]{ "publish-gps", "--file-group-id", "10", "--time-series-name", "demo" });
-            app.run(new String[]{ "scan", "--original-directory", "/music" });
+            app.run(new String[]{ "file", "publish-music" });
+            assertFalse(server.lastRequestBody()
+                .has("publish_to_site"), "without the flag the data set is only created");
+            app.run(new String[]{ "file", "publish-music", "--publish-to-site" });
+            assertTrue(server.lastRequestBody()
+                .getBoolean("publish_to_site"));
+            app.run(new String[]{ "file", "publish-gps", "--file-group-id", "10", "--time-series-name", "demo" });
+            assertFalse(server.lastRequestBody()
+                .has("publish_to_site"));
+            app.run(new String[]{ "file", "publish-gps", "--file-group-id", "10", "--time-series-name", "demo", "--publish-to-site" });
+            assertEquals(10, server.lastRequestBody()
+                .getInt("file_group_id"));
+            assertTrue(server.lastRequestBody()
+                .getBoolean("publish_to_site"));
+            assertFalse(server.lastRequestBody()
+                .has("acls"), "without --acl no grantee list is sent, the grantees of an existing data set stay");
+
+            // --acl names the admin users and units granted privileges on the data set, repeatable; 'none' removes every additional grantee
+            app.run(new String[]{ "file", "publish-music", "--acl", "user:12:rm", "--acl", "unit:3:R" });
+            var acls = server.lastRequestBody()
+                .getJSONArray("acls");
+            assertEquals(2, acls.length());
+            assertEquals(12, acls.getJSONObject(0)
+                .getInt("user_id"));
+            assertTrue(acls.getJSONObject(0)
+                .isNull("unit_id"));
+            assertTrue(acls.getJSONObject(0)
+                .getBoolean("read_privilege"));
+            assertTrue(acls.getJSONObject(0)
+                .getBoolean("modify_privilege"));
+            assertFalse(acls.getJSONObject(0)
+                .getBoolean("create_privilege"));
+            assertFalse(acls.getJSONObject(0)
+                .getBoolean("delete_privilege"));
+            assertEquals(3, acls.getJSONObject(1)
+                .getInt("unit_id"));
+            assertTrue(acls.getJSONObject(1)
+                .isNull("user_id"));
+            app.run(new String[]{ "file", "publish-gps", "--file-group-id", "10", "--time-series-name", "demo", "--acl", "none" });
+            assertTrue(server.lastRequestBody()
+                .getJSONArray("acls")
+                .isEmpty());
+            var requestsBefore = server.requests()
+                .size();
+            app.run(new String[]{ "file", "publish-music", "--acl", "user:12" });
+            app.run(new String[]{ "file", "publish-gps", "--file-group-id", "10", "--time-series-name", "demo", "--acl", "group:3:r" });
+            app.run(new String[]{ "file", "publish-music", "--acl", "user:12:x" });
+            app.run(new String[]{ "file", "publish-music", "--acl", "user:0:r" });
+            assertEquals(requestsBefore, server.requests()
+                .size(), "an invalid --acl value is rejected before any request");
+            var aclErrors = errBytes.toString(StandardCharsets.UTF_8);
+            assertTrue(aclErrors.contains("Invalid --acl value 'user:12': use user:<id>:<privileges> or unit:<id>:<privileges>, or none"), aclErrors);
+            assertTrue(aclErrors.contains("Invalid --acl value 'group:3:r'"), aclErrors);
+            assertTrue(aclErrors.contains("Invalid --acl value 'user:12:x': the privileges are letters out of r, c, m and d"), aclErrors);
+            assertTrue(aclErrors.contains("Invalid --acl value 'user:0:r': the ID must be a positive number"), aclErrors);
+            errBytes.reset();
+            app.run(new String[]{ "file", "scan", "--original-directory", "/music" });
             app.run(new String[]{ "logout" });
 
             var output = outBytes.toString(StandardCharsets.UTF_8);
@@ -304,7 +358,7 @@ class CliIntegrationUTC {
             var errBytes = new ByteArrayOutputStream();
             var app = new VempainFileCliApplication(sessionStore, new HttpTransport(), new PrintStream(outBytes), new PrintStream(errBytes));
 
-            app.run(new String[]{ "tag-rename", "--tag", "old", "--to", "new", "--name-en", "new" });
+            app.run(new String[]{ "file", "tag-rename", "--tag", "old", "--to", "new", "--name-en", "new" });
             var rename = server.lastRequestBody();
             assertEquals("old", rename.getString("tag_name"));
             assertEquals("new", rename.getString("replacement_tag_name"));
@@ -316,19 +370,19 @@ class CliIntegrationUTC {
             assertEquals("[]", rename.getJSONArray("file_ids")
                 .toString());
 
-            app.run(new String[]{ "tag-replace", "--tag", "old", "--with", "new" });
+            app.run(new String[]{ "file", "tag-replace", "--tag", "old", "--with", "new" });
             var replace = server.lastRequestBody();
             assertEquals("old", replace.getString("tag_name"));
             assertEquals("new", replace.getString("replacement_tag_name"));
 
-            app.run(new String[]{ "metadata-update", "--group", "XMP-dc", "--key", "Creator", "--value", "Jane Doe", "--new-value", "Jane A. Doe" });
+            app.run(new String[]{ "file", "metadata-update", "--group", "XMP-dc", "--key", "Creator", "--value", "Jane Doe", "--new-value", "Jane A. Doe" });
             var update = server.lastRequestBody();
             assertEquals("XMP-dc", update.getString("metadata_group"));
             assertEquals("Creator", update.getString("metadata_key"));
             assertEquals("Jane Doe", update.getString("metadata_value"));
             assertEquals("Jane A. Doe", update.getString("new_value"));
 
-            app.run(new String[]{ "metadata-update", "--group", "XMP-dc", "--key", "Creator", "--value", "Jane A. Doe", "--remove" });
+            app.run(new String[]{ "file", "metadata-update", "--group", "XMP-dc", "--key", "Creator", "--value", "Jane A. Doe", "--remove" });
             assertEquals("", server.lastRequestBody()
                 .getString("new_value"), "--remove sends an empty new value");
 
@@ -354,10 +408,10 @@ class CliIntegrationUTC {
             var errBytes = new ByteArrayOutputStream();
             var app = new VempainFileCliApplication(sessionStore, new HttpTransport(), new PrintStream(outBytes), new PrintStream(errBytes));
 
-            app.run(new String[]{ "tag-replace", "--tag", "same", "--with", "same" });
-            app.run(new String[]{ "metadata-update", "--group", "XMP-dc", "--key", "Creator", "--value", "x" });
-            app.run(new String[]{ "metadata-update", "--group", "XMP-dc", "--key", "Creator", "--value", "x", "--new-value", "y", "--remove" });
-            app.run(new String[]{ "tag-rename", "--tag", " ", "--to", "new" });
+            app.run(new String[]{ "file", "tag-replace", "--tag", "same", "--with", "same" });
+            app.run(new String[]{ "file", "metadata-update", "--group", "XMP-dc", "--key", "Creator", "--value", "x" });
+            app.run(new String[]{ "file", "metadata-update", "--group", "XMP-dc", "--key", "Creator", "--value", "x", "--new-value", "y", "--remove" });
+            app.run(new String[]{ "file", "tag-rename", "--tag", " ", "--to", "new" });
 
             var err = errBytes.toString(StandardCharsets.UTF_8);
             assertTrue(err.contains("--with must name a different tag than --tag"), err);
@@ -380,7 +434,7 @@ class CliIntegrationUTC {
             var outBytes = new ByteArrayOutputStream();
             var app = new VempainFileCliApplication(sessionStore, new HttpTransport(), new PrintStream(outBytes), System.err);
 
-            app.run(new String[]{ "publish-files", "--ids-file", idsFile.toString() });
+            app.run(new String[]{ "file", "publish-files", "--ids-file", idsFile.toString() });
 
             var output = outBytes.toString(StandardCharsets.UTF_8);
             assertTrue(output.contains("Submitted 2 file IDs"));
@@ -397,13 +451,13 @@ class CliIntegrationUTC {
         var errBytes = new ByteArrayOutputStream();
         var app = new VempainFileCliApplication(new SessionStore(), new HttpTransport(), new PrintStream(outBytes), new PrintStream(errBytes));
 
-        app.run(new String[]{ "files-list", "--type", "music" });
-        app.run(new String[]{ "files-list", "--type", "notatype" });
+        app.run(new String[]{ "file", "list", "--type", "music" });
+        app.run(new String[]{ "file", "list", "--type", "notatype" });
 
         var sessionStore = new SessionStore();
         sessionStore.save("http://localhost:8080/api", "jwt-x");
         var appWithSession = new VempainFileCliApplication(sessionStore, new HttpTransport(), new PrintStream(outBytes), new PrintStream(errBytes));
-        appWithSession.run(new String[]{ "scan" });
+        appWithSession.run(new String[]{ "file", "scan" });
 
         var err = errBytes.toString(StandardCharsets.UTF_8);
         assertTrue(err.contains("Not logged in"));
@@ -420,9 +474,12 @@ class CliIntegrationUTC {
                       {"id": 7, "short_name": "Summer", "description": "Summer photos"}
                     ], "page": 0, "total_pages": 1, "total_elements": 1}
                                     """);
-            adminServer.registerJson("/api/content-management/galleries/publish", "[{\"result\":\"OK\",\"message\":\"done\"}]");
-            adminServer.registerJson("/api/content-management/galleries/publish-selected", "[{\"result\":\"OK\",\"message\":\"done\"}]");
-            adminServer.registerJson("/api/content-management/file/site-files/publish-selected", "{\"task_id\":\"site-publish-1\",\"status\":\"QUEUED\"}");
+            adminServer.registerJson("/api/content-management/galleries/publish",
+                    "{\"result\":\"OK\",\"message\":\"Publishing started\",\"timestamp\":\"2026-10-31T21:11:01Z\",\"task\":{\"task_id\":\"gallery-publish-1\",\"type\":\"PUBLISH\",\"title\":\"Publish gallery 7\",\"status\":\"RUNNING\",\"total_steps\":2}}");
+            adminServer.registerJson("/api/content-management/galleries/publish-selected",
+                    "{\"result\":\"OK\",\"message\":\"Publishing started\",\"timestamp\":\"2026-10-31T21:11:01Z\",\"task\":{\"task_id\":\"galleries-publish-1\",\"type\":\"PUBLISH\",\"title\":\"Publish 2 galleries\",\"status\":\"RUNNING\",\"total_steps\":2}}");
+            adminServer.registerJson("/api/content-management/file/site-files/publish-selected",
+                    "{\"result\":\"OK\",\"message\":\"Publishing started\",\"timestamp\":\"2026-10-31T21:11:01Z\",\"task\":{\"task_id\":\"site-publish-1\",\"type\":\"PUBLISH\",\"title\":\"Publish 2 selected files\",\"status\":\"RUNNING\",\"total_steps\":2}}");
 
             var outBytes = new ByteArrayOutputStream();
             var errBytes = new ByteArrayOutputStream();
@@ -464,7 +521,7 @@ class CliIntegrationUTC {
             var app = new VempainFileCliApplication(sessionStore, new HttpTransport(), new PrintStream(outBytes), System.err);
 
             var inputs = new ArrayDeque<String>();
-            inputs.add("files-list --type music");
+            inputs.add("file list --type music");
             inputs.add("exit");
             LineReader reader = (LineReader) Proxy.newProxyInstance(LineReader.class.getClassLoader(), new Class[]{ LineReader.class },
                     (proxy, method, args) -> {
@@ -546,7 +603,7 @@ class CliIntegrationUTC {
             var app = new VempainFileCliApplication(sessionStore, new HttpTransport(), new PrintStream(outBytes), System.err, mockReader);
             var prompts = new ArrayList<String>();
             var reader = scriptedReader(List.of("session show", "login --backend file --url " + fileServer.baseUrl() + " --username admin",
-                    "files-list --type music", "session show", "exit"), prompts);
+                    "file list --type music", "session show", "exit"), prompts);
 
             app.runShell(reader);
 
@@ -575,7 +632,7 @@ class CliIntegrationUTC {
             sessionStore.save(SessionStore.BACKEND_ADMIN, adminServer.baseUrl(), "admin-jwt");
             var app = new VempainFileCliApplication(sessionStore, new HttpTransport(), new PrintStream(new ByteArrayOutputStream()), System.err);
 
-            app.run(new String[]{ "files-list", "--type", "music" });
+            app.run(new String[]{ "file", "list", "--type", "music" });
 
             assertEquals("file-jwt-renewed", new SessionStore().load(SessionStore.BACKEND_FILE)
                 .token(), "the next invocation uses the renewed token");
@@ -586,7 +643,7 @@ class CliIntegrationUTC {
                 .isEmpty(), "a command is a user action");
 
             // The renewed token is what the following command sends
-            app.run(new String[]{ "files-list", "--type", "music" });
+            app.run(new String[]{ "file", "list", "--type", "music" });
             assertEquals("Bearer file-jwt-renewed", fileServer.lastAuthorization("/api/files/music/paged"));
         }
     }
@@ -638,7 +695,26 @@ class CliIntegrationUTC {
         var candidates = new ArrayList<Candidate>();
         completer.complete(null, new StubParsedLine(List.of(""), 0, ""), candidates);
         assertTrue(candidates.stream()
-            .anyMatch(c -> "file-show".equals(c.value())));
+            .anyMatch(c -> "file".equals(c.value())));
+    }
+
+    @Test
+    void legacyTopLevelCommandNames_pointToTheirNewForm() {
+        var outBytes = new ByteArrayOutputStream();
+        var errBytes = new ByteArrayOutputStream();
+        var app = new VempainFileCliApplication(new SessionStore(), new HttpTransport(), new PrintStream(outBytes), new PrintStream(errBytes));
+
+        app.run(new String[]{ "files-list", "--type", "music" });
+        app.run(new String[]{ "publish-music" });
+        app.run(new String[]{ "scan", "-o", "/music" });
+
+        var err = errBytes.toString(StandardCharsets.UTF_8);
+        assertTrue(err.contains("Since version 2.0 the command 'files-list' is 'file list'"), err);
+        assertTrue(err.contains("Run: vf-cli file list --type music"), err);
+        assertTrue(err.contains("the command 'publish-music' is 'file publish-music'"), err);
+        assertTrue(err.contains("Run: vf-cli file scan -o /music"), err);
+        assertFalse(outBytes.toString(StandardCharsets.UTF_8)
+            .contains("Usage:"), "the old name is explained, not the whole usage");
     }
 
     @Test
@@ -649,7 +725,7 @@ class CliIntegrationUTC {
 
         app.run(new String[]{});
         app.run(new String[]{ "--help" });
-        app.run(new String[]{ "files-list", "--unknown" });
+        app.run(new String[]{ "file", "list", "--unknown" });
 
         var err = errBytes.toString(StandardCharsets.UTF_8);
         assertTrue(err.contains("Was passed main parameter")
@@ -670,7 +746,7 @@ class CliIntegrationUTC {
 
             var outBytes = new ByteArrayOutputStream();
             var app = new VempainFileCliApplication(sessionStore, new HttpTransport(), new PrintStream(outBytes), System.err);
-            app.run(new String[]{ "file-show", "--type", "music", "--id", "99" });
+            app.run(new String[]{ "file", "show", "--type", "music", "--id", "99" });
 
             assertTrue(outBytes.toString(StandardCharsets.UTF_8)
                 .contains("Binary content (4 bytes"));
@@ -682,7 +758,7 @@ class CliIntegrationUTC {
         var app = new VempainFileCliApplication(new SessionStore(), new HttpTransport(), System.out, System.err);
         var completer = app.createCompleterForTests();
         var candidates = new ArrayList<Candidate>();
-        completer.complete(null, new StubParsedLine(List.of("scan", "--export-directory", "/ex"), 2, "/ex"), candidates);
+        completer.complete(null, new StubParsedLine(List.of("file", "scan", "--export-directory", "/ex"), 3, "/ex"), candidates);
         assertTrue(candidates.isEmpty());
     }
 
@@ -708,7 +784,7 @@ class CliIntegrationUTC {
         var completer = app.createShellCompleterForTests();
 
         var scanOptionCandidates = new ArrayList<Candidate>();
-        completer.complete(null, new StubParsedLine(List.of("scan", ""), 1, ""), scanOptionCandidates);
+        completer.complete(null, new StubParsedLine(List.of("file", "scan", ""), 2, ""), scanOptionCandidates);
         assertTrue(scanOptionCandidates.stream()
             .anyMatch(c -> "--original-directory".equals(c.value())));
         assertTrue(scanOptionCandidates.stream()
@@ -735,7 +811,7 @@ class CliIntegrationUTC {
         assertFalse(candidates.stream()
             .anyMatch(c -> "shell".equals(c.value())));
         assertTrue(candidates.stream()
-            .anyMatch(c -> "scan".equals(c.value())));
+            .anyMatch(c -> "file".equals(c.value())));
     }
 
     @Test
@@ -778,18 +854,20 @@ class CliIntegrationUTC {
 
         assertEquals(Set.of("--backend", "-b", "--url", "--username"), optionValues(completer, "login"));
         assertEquals(Set.of("-t", "--type", "-p", "--page", "-s", "--size", "--sort-by", "--direction", "--search", "--case-sensitive"),
-                optionValues(completer, "files-list"));
-        assertEquals(Set.of("-t", "--type", "-i", "--id", "--raw", "--content-limit"), optionValues(completer, "file-show"));
-        assertEquals(Set.of("--monitor"), optionValues(completer, "publish-music"));
-        assertEquals(Set.of("--file-group-id", "--time-series-name", "--monitor"), optionValues(completer, "publish-gps"));
-        assertEquals(Set.of("--ids-file", "--monitor"), optionValues(completer, "publish-files"));
-        assertEquals(Set.of("--file-id", "--file-group-id", "--raw"), optionValues(completer, "publish-status"));
-        assertEquals(Set.of("-o", "--original-directory", "-e", "--export-directory", "--monitor"), optionValues(completer, "scan"));
+                fileOptionValues(completer, "list"));
+        assertEquals(Set.of("-t", "--type", "-i", "--id", "--raw", "--content-limit"), fileOptionValues(completer, "show"));
+        assertEquals(Set.of("--publish-to-site", "--acl", "--monitor"), fileOptionValues(completer, "publish-music"));
+        assertEquals(Set.of("--file-group-id", "--time-series-name", "--publish-to-site", "--acl", "--monitor"), fileOptionValues(completer, "publish-gps"));
+        assertEquals(Set.of("--ids-file", "--monitor"), fileOptionValues(completer, "publish-files"));
+        assertEquals(Set.of("--file-id", "--file-group-id", "--raw"), fileOptionValues(completer, "publish-status"));
+        assertEquals(Set.of("-o", "--original-directory", "-e", "--export-directory", "--monitor"), fileOptionValues(completer, "scan"));
         assertEquals(Set.of("--tag", "--to", "--name-de", "--name-en", "--name-es", "--name-fi", "--name-sv", "--monitor"),
-                optionValues(completer, "tag-rename"));
-        assertEquals(Set.of("--tag", "--with", "--monitor"), optionValues(completer, "tag-replace"));
-        assertEquals(Set.of("--group", "--key", "--value", "--new-value", "--remove", "--monitor"), optionValues(completer, "metadata-update"));
-        assertEquals(Set.of("list-groups", "publish-group", "publish-groups", "publish-site-files"), optionValues(completer, "admin"));
+                fileOptionValues(completer, "tag-rename"));
+        assertEquals(Set.of("--tag", "--with", "--monitor"), fileOptionValues(completer, "tag-replace"));
+        assertEquals(Set.of("--group", "--key", "--value", "--new-value", "--remove", "--monitor"), fileOptionValues(completer, "metadata-update"));
+        assertEquals(Set.of("list", "show", "scan", "publish-files", "publish-status", "publish-music", "publish-gps", "tag-rename", "tag-replace",
+                "metadata-update"), optionValues(completer, "file"));
+        assertEquals(Set.of("list-groups", "list-tags", "publish-group", "publish-groups", "publish-site-files"), optionValues(completer, "admin"));
         assertEquals(Set.of("show", "use"), optionValues(completer, "session"));
         assertEquals(Set.of(), optionValues(completer, "logout"));
         assertEquals(Set.of(), optionValues(completer, "exit"));
@@ -799,6 +877,15 @@ class CliIntegrationUTC {
     private Set<String> optionValues(org.jline.reader.Completer completer, String command) {
         var candidates = new ArrayList<Candidate>();
         completer.complete(null, new StubParsedLine(List.of(command, ""), 1, ""), candidates);
+        return candidates.stream()
+            .map(Candidate::value)
+            .collect(Collectors.toSet());
+    }
+
+    /** The options offered right after a subcommand of the {@code file} group */
+    private Set<String> fileOptionValues(org.jline.reader.Completer completer, String subcommand) {
+        var candidates = new ArrayList<Candidate>();
+        completer.complete(null, new StubParsedLine(List.of("file", subcommand, ""), 2, ""), candidates);
         return candidates.stream()
             .map(Candidate::value)
             .collect(Collectors.toSet());
@@ -885,6 +972,7 @@ class CliIntegrationUTC {
         private final List<String> backgroundRequests = Collections.synchronizedList(new ArrayList<>());
         private volatile String renewedToken;
         private JSONObject lastRequestBody;
+        private String lastRequestUri;
 
         MockApiServer() throws IOException {
             server = HttpServer.create(new InetSocketAddress(0), 0);
@@ -919,6 +1007,8 @@ class CliIntegrationUTC {
                         + " "
                         + exchange.getRequestURI()
                             .getPath());
+                lastRequestUri = exchange.getRequestURI()
+                    .toString();
                 var authorization = exchange.getRequestHeaders()
                     .getFirst("Authorization");
                 if (authorization != null) {
@@ -996,6 +1086,11 @@ class CliIntegrationUTC {
             });
         }
 
+        /** Path and query string of the last request, for commands that send their parameters in the URL */
+        String lastRequestUri() {
+            return lastRequestUri;
+        }
+
         JSONObject lastRequestBody() {
             return lastRequestBody;
         }
@@ -1039,7 +1134,7 @@ class CliIntegrationUTC {
             var completer = app.createShellCompleterForTests();
 
             var candidates = new ArrayList<Candidate>();
-            completer.complete(null, new StubParsedLine(List.of("scan", "--original-directory", "/music/G"), 2, "/music/G"), candidates);
+            completer.complete(null, new StubParsedLine(List.of("file", "scan", "--original-directory", "/music/G"), 3, "/music/G"), candidates);
 
             assertEquals(1, candidates.size());
             assertEquals("/music/Green_Day/", candidates.get(0)
@@ -1063,7 +1158,7 @@ class CliIntegrationUTC {
             var completer = app.createShellCompleterForTests();
 
             var candidates = new ArrayList<Candidate>();
-            completer.complete(null, new StubParsedLine(List.of("scan", "--original-directory", "/music/", "G"), 3, "G"), candidates);
+            completer.complete(null, new StubParsedLine(List.of("file", "scan", "--original-directory", "/music/", "G"), 4, "G"), candidates);
 
             assertEquals(1, candidates.size());
             assertEquals("Green_Day/", candidates.get(0)
@@ -1100,19 +1195,19 @@ class CliIntegrationUTC {
                 var doComplete = LineReaderImpl.class.getDeclaredMethod("doComplete", completionTypeClass, boolean.class, boolean.class, boolean.class);
                 doComplete.setAccessible(true);
 
-                setBuffer.invoke(reader, "scan -o /m");
+                setBuffer.invoke(reader, "file scan -o /m");
                 invokeCompletion(doComplete, reader, completeType);
-                assertEquals("scan -o /music/", reader.getBuffer()
+                assertEquals("file scan -o /music/", reader.getBuffer()
                     .toString());
 
-                setBuffer.invoke(reader, "scan -o /music/");
+                setBuffer.invoke(reader, "file scan -o /music/");
                 invokeCompletion(doComplete, reader, completeType);
-                assertEquals("scan -o /music/", reader.getBuffer()
+                assertEquals("file scan -o /music/", reader.getBuffer()
                     .toString());
 
-                setBuffer.invoke(reader, "scan -o /music/G");
+                setBuffer.invoke(reader, "file scan -o /music/G");
                 invokeCompletion(doComplete, reader, completeType);
-                assertEquals("scan -o /music/Green_Day/", reader.getBuffer()
+                assertEquals("file scan -o /music/Green_Day/", reader.getBuffer()
                     .toString());
             }
         }
@@ -1148,7 +1243,7 @@ class CliIntegrationUTC {
 
             var completer = app.createShellCompleterForTests();
             var candidates = new ArrayList<Candidate>();
-            completer.complete(null, new StubParsedLine(List.of("scan", "--original-directory", "/music/G"), 2, "/music/G"), candidates);
+            completer.complete(null, new StubParsedLine(List.of("file", "scan", "--original-directory", "/music/G"), 3, "/music/G"), candidates);
 
             var debugOutput = errBytes.toString(StandardCharsets.UTF_8);
             assertTrue(debugOutput.contains("[completion-debug] path-completion request:"));
@@ -1200,7 +1295,9 @@ class CliIntegrationUTC {
             server.registerJsonSequence("/api/content-management/galleries/paged-list",
                     "[{\"id\":1,\"short_name\":\"Spring\",\"description\":\"Spring photos\"}]", "{\"content\":[],\"page\":0}",
                     "{\"content\":[{\"id\":2,\"short_name\":\"Winter\"}],\"pageNumber\":1,\"totalPages\":3,\"totalElements\":30}");
-            server.registerJson("/api/content-management/galleries/publish", "{\"task_id\":\"task-pub\",\"status\":\"QUEUED\"}");
+            // the admin publish endpoints answer with a PublishResponse: the accepted task sits in its "task" object, or is absent when scheduled
+            server.registerJson("/api/content-management/galleries/publish",
+                    "{\"result\":\"OK\",\"message\":\"Publishing scheduled for 2026-12-24T18:00:00\",\"timestamp\":\"2026-10-31T21:11:01Z\"}");
             server.registerJson("/api/content-management/galleries/publish-selected", "{\"status\":\"QUEUED\"}");
             var sessionStore = new SessionStore();
             sessionStore.save(SessionStore.BACKEND_ADMIN, server.baseUrl(), "admin-jwt");
@@ -1228,11 +1325,36 @@ class CliIntegrationUTC {
             assertTrue(outBytes.toString(StandardCharsets.UTF_8)
                 .contains("Page 1/3, total elements: 30"), outBytes.toString(StandardCharsets.UTF_8));
 
-            app.run(new String[]{ "admin", "publish-group", "--id", "7", "--publish-datetime", "2026-12-24T18:00:00" });
+            // admin list-tags: GET /content-management/tags with the search text and limit as query parameters, an array answer listed by rows
+            server.registerJsonSequence("/api/content-management/tags", "[{\"id\":3,\"tag_name\":\"summer\"},{\"id\":4,\"tag_name\":\"summer holiday\"}]",
+                    "[]");
+            outBytes.reset();
+            app.run(new String[]{ "admin", "list-tags", "--search", "sum mer", "--limit", "5" });
+            var tagsOutput = outBytes.toString(StandardCharsets.UTF_8);
+            assertTrue(tagsOutput.contains("3        summer"), tagsOutput);
+            assertTrue(tagsOutput.contains("4        summer holiday"), tagsOutput);
+            assertTrue(server.lastRequestUri()
+                .endsWith("/api/content-management/tags?limit=5&search=sum+mer"), server.lastRequestUri());
+            outBytes.reset();
+            app.run(new String[]{ "admin", "list-tags" });
+            assertTrue(outBytes.toString(StandardCharsets.UTF_8)
+                .contains("No tags found."));
+            assertTrue(server.lastRequestUri()
+                .endsWith("/api/content-management/tags?limit=20"), server.lastRequestUri());
+            errBytes.reset();
+            app.run(new String[]{ "admin", "list-tags", "--limit", "0" });
+            assertTrue(errBytes.toString(StandardCharsets.UTF_8)
+                .contains("--limit must be between 1 and 50"), errBytes.toString(StandardCharsets.UTF_8));
+
+            outBytes.reset();
+            app.run(new String[]{ "admin", "publish-group", "--id", "7", "--publish-datetime", "2026-12-24T18:00:00", "--monitor" });
             var scheduled = server.lastRequestBody();
             assertTrue(scheduled.getBoolean("publish_schedule"));
             assertEquals("2026-12-24T18:00:00", scheduled.getString("publish_date_time"));
             assertFalse(scheduled.has("publish_message"));
+            assertTrue(outBytes.toString(StandardCharsets.UTF_8)
+                .contains("No background task to monitor: Publishing scheduled for 2026-12-24T18:00:00"),
+                    "a scheduled publish has no task to follow and is not an error: " + outBytes.toString(StandardCharsets.UTF_8));
 
             app.run(new String[]{ "admin", "publish-groups", "--ids", " , " });
             app.run(new String[]{ "admin", "publish-groups", "--ids", "7", "--monitor" });
@@ -1322,7 +1444,7 @@ class CliIntegrationUTC {
             var errBytes = new ByteArrayOutputStream();
             var app = new VempainFileCliApplication(sessionStore, new HttpTransport(), new PrintStream(outBytes), new PrintStream(errBytes));
 
-            app.run(new String[]{ "files-list", "--type", "image", "--search", "holiday", "--direction", "desc" });
+            app.run(new String[]{ "file", "list", "--type", "image", "--search", "holiday", "--direction", "desc" });
             assertEquals("holiday", server.lastRequestBody()
                 .getString("search"));
             assertEquals("DESC", server.lastRequestBody()
@@ -1331,7 +1453,7 @@ class CliIntegrationUTC {
                 .contains("Page 2/5, total elements: 101"), "camelCase paging keys are understood");
 
             outBytes.reset();
-            app.run(new String[]{ "scan", "-e", "/export" });
+            app.run(new String[]{ "file", "scan", "-e", "/export" });
             assertEquals("/export", server.lastRequestBody()
                 .getString("export_directory"));
             assertFalse(server.lastRequestBody()
@@ -1339,14 +1461,14 @@ class CliIntegrationUTC {
             assertTrue(outBytes.toString(StandardCharsets.UTF_8)
                 .contains("\"task_id\": \"scan-1\""), "an object response is printed as such");
 
-            app.run(new String[]{ "publish-gps", "--file-group-id", "1", "--time-series-name", "gps", "--monitor" });
+            app.run(new String[]{ "file", "publish-gps", "--file-group-id", "1", "--time-series-name", "gps", "--monitor" });
             assertTrue(errBytes.toString(StandardCharsets.UTF_8)
                 .contains("The backend did not return a task_id; cannot monitor the request."));
 
-            app.run(new String[]{ "tag-rename", "--tag", "old", "--to", "new" });
+            app.run(new String[]{ "file", "tag-rename", "--tag", "old", "--to", "new" });
             assertFalse(server.lastRequestBody()
                 .has("tag_name_en"), "no translations are carried over when the lookup returns no content");
-            app.run(new String[]{ "tag-rename", "--tag", "old", "--to", "new" });
+            app.run(new String[]{ "file", "tag-rename", "--tag", "old", "--to", "new" });
             assertEquals("new", server.lastRequestBody()
                 .getString("replacement_tag_name"), "a lookup that lists other tags only still renames");
         }
@@ -1358,7 +1480,7 @@ class CliIntegrationUTC {
             var outBytes = new ByteArrayOutputStream();
             var app = new VempainFileCliApplication(sessionStore, new HttpTransport(), new PrintStream(outBytes), System.err);
 
-            app.run(new String[]{ "tag-rename", "--tag", "old", "--to", "new" });
+            app.run(new String[]{ "file", "tag-rename", "--tag", "old", "--to", "new" });
 
             var output = outBytes.toString(StandardCharsets.UTF_8);
             assertTrue(output.contains("Could not look up the current translations of tag 'old'"), output);
@@ -1384,40 +1506,40 @@ class CliIntegrationUTC {
             var errBytes = new ByteArrayOutputStream();
             var app = new VempainFileCliApplication(sessionStore, new HttpTransport(), new PrintStream(outBytes), new PrintStream(errBytes));
 
-            app.run(new String[]{ "publish-status", "--file-id", "55" });
+            app.run(new String[]{ "file", "publish-status", "--file-id", "55" });
             var published = outBytes.toString(StandardCharsets.UTF_8);
             assertTrue(published.contains("File 55 is published as site file 500."), published);
             assertTrue(published.contains("12       -        true   false  true   false"), published);
             assertTrue(published.contains("-        3        true   false  false  false"), published);
 
             outBytes.reset();
-            app.run(new String[]{ "publish-status", "--file-id", "56" });
+            app.run(new String[]{ "file", "publish-status", "--file-id", "56" });
             assertTrue(outBytes.toString(StandardCharsets.UTF_8)
                 .contains("File 56 has not been published to Vempain Admin."));
 
             outBytes.reset();
-            app.run(new String[]{ "publish-status", "--file-group-id", "11" });
+            app.run(new String[]{ "file", "publish-status", "--file-group-id", "11" });
             var group = outBytes.toString(StandardCharsets.UTF_8);
             assertTrue(group.contains("File group 11 is published as gallery 1001 (Summer) with 2 site files: 500, 501"), group);
             assertTrue(group.contains("No additional admin users or units hold privileges on it."), group);
 
             outBytes.reset();
-            app.run(new String[]{ "publish-status", "--file-group-id", "12" });
+            app.run(new String[]{ "file", "publish-status", "--file-group-id", "12" });
             assertTrue(outBytes.toString(StandardCharsets.UTF_8)
                 .contains("File group 12 has not been published to Vempain Admin."));
 
             outBytes.reset();
-            app.run(new String[]{ "publish-status", "--file-group-id", "11", "--raw" });
+            app.run(new String[]{ "file", "publish-status", "--file-group-id", "11", "--raw" });
             assertTrue(outBytes.toString(StandardCharsets.UTF_8)
                 .contains("\"gallery_name\": \"Summer\""));
             outBytes.reset();
-            app.run(new String[]{ "publish-status", "--file-id", "55", "--raw" });
+            app.run(new String[]{ "file", "publish-status", "--file-id", "55", "--raw" });
             assertTrue(outBytes.toString(StandardCharsets.UTF_8)
                 .contains("\"site_file_id\": 500"));
 
             // Exactly one of the two IDs
-            app.run(new String[]{ "publish-status" });
-            app.run(new String[]{ "publish-status", "--file-id", "55", "--file-group-id", "11" });
+            app.run(new String[]{ "file", "publish-status" });
+            app.run(new String[]{ "file", "publish-status", "--file-id", "55", "--file-group-id", "11" });
             var errors = errBytes.toString(StandardCharsets.UTF_8);
             assertEquals(2, errors.split("Give exactly one of --file-id and --file-group-id", -1).length - 1, errors);
             assertEquals(6, server.requests()
@@ -1438,9 +1560,9 @@ class CliIntegrationUTC {
         var errBytes = new ByteArrayOutputStream();
         var app = new VempainFileCliApplication(sessionStore, new HttpTransport(), new PrintStream(OutputStream.nullOutputStream()), new PrintStream(errBytes));
 
-        app.run(new String[]{ "publish-files", "--ids-file", invalid.toString() });
-        app.run(new String[]{ "publish-files", "--ids-file", zero.toString() });
-        app.run(new String[]{ "publish-files", "--ids-file", empty.toString() });
+        app.run(new String[]{ "file", "publish-files", "--ids-file", invalid.toString() });
+        app.run(new String[]{ "file", "publish-files", "--ids-file", zero.toString() });
+        app.run(new String[]{ "file", "publish-files", "--ids-file", empty.toString() });
 
         var err = errBytes.toString(StandardCharsets.UTF_8);
         assertTrue(err.contains("Invalid file ID at " + invalid + ":2: abc"), err);
@@ -1464,7 +1586,7 @@ class CliIntegrationUTC {
             var monitored = new ArrayList<String>();
             var router = routerWithStubMonitor(sessionStore, outBytes, errBytes, monitored);
 
-            router.run(new String[]{ "publish-files", "--ids-file", idsFile("fallback.txt", "42\n17\n") }, false);
+            router.run(new String[]{ "file", "publish-files", "--ids-file", idsFile("fallback.txt", "42\n17\n") }, false);
             var output = outBytes.toString(StandardCharsets.UTF_8);
             assertTrue(output.contains("Bulk publishing is not available on this file backend; falling back to POST /publish/file for each ID."), output);
             assertTrue(output.contains("Submitted 2 of 2 file IDs individually."), output);
@@ -1472,7 +1594,7 @@ class CliIntegrationUTC {
             assertTrue(monitored.isEmpty());
 
             outBytes.reset();
-            router.run(new String[]{ "publish-files", "--ids-file", idsFile("partial.txt", "42\n99\n") }, false);
+            router.run(new String[]{ "file", "publish-files", "--ids-file", idsFile("partial.txt", "42\n99\n") }, false);
             output = outBytes.toString(StandardCharsets.UTF_8);
             assertTrue(output.contains("Submitted 1 of 2 file IDs individually."), output);
             assertTrue(output.contains("Failed file IDs:"), output);
@@ -1481,13 +1603,13 @@ class CliIntegrationUTC {
                 .contains("Error: Some file IDs could not be submitted"));
 
             outBytes.reset();
-            router.run(new String[]{ "publish-files", "--ids-file", idsFile("monitored.txt", "42\n"), "--monitor" }, false);
+            router.run(new String[]{ "file", "publish-files", "--ids-file", idsFile("monitored.txt", "42\n"), "--monitor" }, false);
             assertEquals(List.of("t-42"), monitored, "the fallback tasks are monitored one by one");
             assertTrue(outBytes.toString(StandardCharsets.UTF_8)
                 .contains("Task t-42: COMPLETED (100%)"));
 
             errBytes.reset();
-            router.run(new String[]{ "publish-files", "--ids-file", idsFile("no-task.txt", "17\n"), "--monitor" }, false);
+            router.run(new String[]{ "file", "publish-files", "--ids-file", idsFile("no-task.txt", "17\n"), "--monitor" }, false);
             assertTrue(errBytes.toString(StandardCharsets.UTF_8)
                 .contains("The backend did not return task_id for the fallback submissions; cannot monitor them."));
         }
@@ -1499,7 +1621,7 @@ class CliIntegrationUTC {
             var app = new VempainFileCliApplication(sessionStore, new HttpTransport(), new PrintStream(OutputStream.nullOutputStream()),
                     new PrintStream(errBytes));
 
-            app.run(new String[]{ "publish-files", "--ids-file", idsFile("other-error.txt", "42\n") });
+            app.run(new String[]{ "file", "publish-files", "--ids-file", idsFile("other-error.txt", "42\n") });
 
             assertTrue(errBytes.toString(StandardCharsets.UTF_8)
                 .contains("HTTP 500"), "other errors are not turned into a fallback");
@@ -1508,10 +1630,41 @@ class CliIntegrationUTC {
     }
 
     @Test
+    void scanFollow_printsTheFilesAsTheyAreImportedAndRefusesTheMonitorAtTheSameTime() throws Exception {
+        try (var server = new MockApiServer()) {
+            server.registerJson("/api/scan-files", "{\"task_id\":\"scan-9\",\"status\":\"QUEUED\"}");
+            server.registerJsonSequence("/api/tasks/scan-9",
+                    "{\"task_id\":\"scan-9\",\"status\":\"RUNNING\",\"total_steps\":2,\"completed_steps\":0,\"message\":\"Scanning 2024\"}",
+                    "{\"task_id\":\"scan-9\",\"status\":\"RUNNING\",\"total_steps\":2,\"completed_steps\":1,\"message\":\"Scanned 2024/a.jpg\"}",
+                    "{\"task_id\":\"scan-9\",\"status\":\"COMPLETED\",\"percent\":100,\"total_steps\":2,\"completed_steps\":2,"
+                            + "\"message\":\"Scanned 2024/b.jpg\"}");
+            var sessionStore = new SessionStore();
+            sessionStore.save(server.baseUrl(), "jwt-scan");
+            var outBytes = new ByteArrayOutputStream();
+            var errBytes = new ByteArrayOutputStream();
+            var app = new VempainFileCliApplication(sessionStore, new HttpTransport(), new PrintStream(outBytes), new PrintStream(errBytes));
+
+            app.run(new String[]{ "file", "scan", "-o", "/2024", "--follow", "--interval-ms", "50" });
+
+            var output = outBytes.toString(StandardCharsets.UTF_8);
+            assertTrue(output.contains("Scan task scan-9 started"), output);
+            assertTrue(output.contains("[0/2] Scanning 2024\n[1/2] Scanned 2024/a.jpg\n[2/2] Scanned 2024/b.jpg\n"), output);
+            assertTrue(output.contains("Task scan-9: COMPLETED (100%)"), output);
+            assertTrue(errBytes.toString(StandardCharsets.UTF_8)
+                .isBlank(), errBytes.toString(StandardCharsets.UTF_8));
+
+            app.run(new String[]{ "file", "scan", "-o", "/2024", "--follow", "--monitor" });
+            assertTrue(errBytes.toString(StandardCharsets.UTF_8)
+                .contains("Use either --follow or --monitor, not both"), errBytes.toString(StandardCharsets.UTF_8));
+        }
+    }
+
+    @Test
     void monitorFlag_opensTheTaskMonitorForScanAndAdminPublishing() throws Exception {
         try (var server = new MockApiServer()) {
             server.registerJson("/api/scan-files", "{\"task_id\":\"scan-7\",\"status\":\"QUEUED\"}");
-            server.registerJson("/api/content-management/galleries/publish", "{\"task_id\":\"gallery-7\",\"status\":\"QUEUED\"}");
+            server.registerJson("/api/content-management/galleries/publish",
+                    "{\"result\":\"OK\",\"message\":\"Publishing started\",\"timestamp\":\"2026-10-31T21:11:01Z\",\"task\":{\"task_id\":\"gallery-7\",\"type\":\"PUBLISH\",\"title\":\"Publish gallery 7\",\"status\":\"RUNNING\",\"total_steps\":2}}");
             var sessionStore = new SessionStore();
             sessionStore.save(SessionStore.BACKEND_FILE, server.baseUrl(), "file-jwt");
             sessionStore.save(SessionStore.BACKEND_ADMIN, server.baseUrl(), "admin-jwt");
@@ -1520,7 +1673,7 @@ class CliIntegrationUTC {
             var monitored = new ArrayList<String>();
             var router = routerWithStubMonitor(sessionStore, outBytes, errBytes, monitored);
 
-            router.run(new String[]{ "scan", "-o", "/music", "--monitor" }, false);
+            router.run(new String[]{ "file", "scan", "-o", "/music", "--monitor" }, false);
             router.run(new String[]{ "admin", "publish-group", "--id", "7", "--monitor" }, false);
 
             assertEquals(List.of("scan-7", "gallery-7"), monitored);

@@ -42,11 +42,19 @@ import fi.poltsi.vempain.cli.tui.TuiShell;
 
 public class CommandRouter {
 
-    private static final List<String> BASE_COMMANDS = List.of("login", "files-list", "file-show", "publish-music", "publish-gps", "publish-files",
-            "publish-status", "scan", "tag-rename", "tag-replace", "metadata-update", "admin", "tasks", "task-monitor", "task-cancel", "session", "logout",
-            "shell", "exit", "quit");
+    /**
+     * The top level commands: the backend specific work sits under {@code file} and {@code admin}, the session and task commands apply to both backends.
+     */
+    private static final List<String> BASE_COMMANDS = List.of("login", "file", "admin", "tasks", "task-monitor", "task-cancel", "session", "logout", "shell",
+            "exit", "quit");
 
     private static final Map<String, List<String>> COMMAND_OPTIONS = commandOptions();
+    /** The subcommands of {@code file} (the file backend) and their options, in completion order */
+    static final Map<String, List<String>> FILE_OPTIONS = fileOptions();
+    /** The subcommands of {@code admin} (the admin backend) and their options, in completion order */
+    static final Map<String, List<String>> ADMIN_OPTIONS = adminOptions();
+    /** The top level commands of version 1.x and their form since 2.0, so that a user typing the old name is told the new one */
+    static final Map<String, String> LEGACY_COMMANDS = legacyCommands();
 
     /**
      * The options whose value names a file of the local filesystem; their values are completed from the filesystem in both shells.
@@ -102,16 +110,7 @@ public class CommandRouter {
     private static Map<String, List<String>> commandOptions() {
         var options = new LinkedHashMap<String, List<String>>();
         options.put("login", List.of("--backend", "-b", "--url", "--username"));
-        options.put("files-list", List.of("-t", "--type", "-p", "--page", "-s", "--size", "--sort-by", "--direction", "--search", "--case-sensitive"));
-        options.put("file-show", List.of("-t", "--type", "-i", "--id", "--raw", "--content-limit"));
-        options.put("publish-music", List.of("--monitor"));
-        options.put("publish-gps", List.of("--file-group-id", "--time-series-name", "--monitor"));
-        options.put("publish-files", List.of("--ids-file", "--monitor"));
-        options.put("publish-status", List.of("--file-id", "--file-group-id", "--raw"));
-        options.put("scan", List.of("-o", "--original-directory", "-e", "--export-directory", "--monitor"));
-        options.put("tag-rename", List.of("--tag", "--to", "--name-de", "--name-en", "--name-es", "--name-fi", "--name-sv", "--monitor"));
-        options.put("tag-replace", List.of("--tag", "--with", "--monitor"));
-        options.put("metadata-update", List.of("--group", "--key", "--value", "--new-value", "--remove", "--monitor"));
+        options.put("file", List.of());
         options.put("admin", List.of());
         options.put("tasks", List.of("--backend", "-b", "--raw"));
         options.put("task-monitor", List.of("--task-id", "--backend", "-b", "--interval-ms"));
@@ -122,24 +121,60 @@ public class CommandRouter {
         return options;
     }
 
+    private static Map<String, List<String>> fileOptions() {
+        var options = new LinkedHashMap<String, List<String>>();
+        options.put("list", List.of("-t", "--type", "-p", "--page", "-s", "--size", "--sort-by", "--direction", "--search", "--case-sensitive"));
+        options.put("show", List.of("-t", "--type", "-i", "--id", "--raw", "--content-limit"));
+        options.put("scan", List.of("-o", "--original-directory", "-e", "--export-directory", "--monitor"));
+        options.put("publish-files", List.of("--ids-file", "--monitor"));
+        options.put("publish-status", List.of("--file-id", "--file-group-id", "--raw"));
+        options.put("publish-music", List.of("--publish-to-site", "--acl", "--monitor"));
+        options.put("publish-gps", List.of("--file-group-id", "--time-series-name", "--publish-to-site", "--acl", "--monitor"));
+        options.put("tag-rename", List.of("--tag", "--to", "--name-de", "--name-en", "--name-es", "--name-fi", "--name-sv", "--monitor"));
+        options.put("tag-replace", List.of("--tag", "--with", "--monitor"));
+        options.put("metadata-update", List.of("--group", "--key", "--value", "--new-value", "--remove", "--monitor"));
+        return options;
+    }
+
+    private static Map<String, List<String>> adminOptions() {
+        var options = new LinkedHashMap<String, List<String>>();
+        options.put("list-groups", List.of("--details", "--search", "--page", "--size", "--modified-after-publish"));
+        options.put("list-tags", List.of("--search", "--limit"));
+        options.put("publish-group", List.of("--id", "--message", "--publish-datetime", "--monitor"));
+        options.put("publish-groups", List.of("--ids", "--monitor"));
+        options.put("publish-site-files", List.of("--ids-file", "--monitor"));
+        return options;
+    }
+
+    private static Map<String, String> legacyCommands() {
+        var legacy = new LinkedHashMap<String, String>();
+        legacy.put("files-list", "file list");
+        legacy.put("file-show", "file show");
+        legacy.put("scan", "file scan");
+        legacy.put("publish-files", "file publish-files");
+        legacy.put("publish-status", "file publish-status");
+        legacy.put("publish-music", "file publish-music");
+        legacy.put("publish-gps", "file publish-gps");
+        legacy.put("tag-rename", "file tag-rename");
+        legacy.put("tag-replace", "file tag-replace");
+        legacy.put("metadata-update", "file metadata-update");
+        return legacy;
+    }
+
     @SuppressWarnings("CyclomaticComplexity")
     public void run(String[] args, boolean debugCompletion) {
         var root = new RootArgs();
         var login = new LoginCommand();
 
-        var list = new FileCommands.ListCommand();
-        var show = new FileCommands.ShowCommand();
-        var publishMusic = new PublishMusicCommand();
-        var publishGps = new FileCommands.PublishGpsCommand();
-        var publishFiles = new FileCommands.PublishFilesCommand();
-        var publishStatus = new FileCommands.PublishStatusCommand();
-        var scan = new FileCommands.ScanCommand();
-        var tagRename = new FileCommands.TagRenameCommand();
-        var tagReplace = new FileCommands.TagReplaceCommand();
-        var metadataUpdate = new FileCommands.MetadataUpdateCommand();
+        var fileGroup = new FileGroupCommand();
+        var fileSubcommands = new FileSubcommands(new FileCommands.ListCommand(), new FileCommands.ShowCommand(), new FileCommands.ScanCommand(),
+                new FileCommands.PublishFilesCommand(), new FileCommands.PublishStatusCommand(), new PublishMusicCommand(),
+                new FileCommands.PublishGpsCommand(), new FileCommands.TagRenameCommand(), new FileCommands.TagReplaceCommand(),
+                new FileCommands.MetadataUpdateCommand());
 
         var admin = new AdminCommands.AdminCommand();
         var adminListGroups = new AdminCommands.AdminListGroupsCommand();
+        var adminListTags = new AdminCommands.AdminListTagsCommand();
         var adminPublishGroup = new AdminCommands.AdminPublishGroupCommand();
         var adminPublishGroups = new AdminCommands.AdminPublishGroupsCommand();
         var adminPublishSiteFiles = new AdminCommands.AdminPublishSiteFilesCommand();
@@ -161,16 +196,7 @@ public class CommandRouter {
             .programName("vf-cli")
             .addObject(root)
             .addCommand("login", login)
-            .addCommand("files-list", list)
-            .addCommand("file-show", show)
-            .addCommand("publish-music", publishMusic)
-            .addCommand("publish-gps", publishGps)
-            .addCommand("publish-files", publishFiles)
-            .addCommand("publish-status", publishStatus)
-            .addCommand("scan", scan)
-            .addCommand("tag-rename", tagRename)
-            .addCommand("tag-replace", tagReplace)
-            .addCommand("metadata-update", metadataUpdate)
+            .addCommand("file", fileGroup)
             .addCommand("admin", admin)
             .addCommand("tasks", tasks)
             .addCommand("task-monitor", taskMonitor)
@@ -180,9 +206,24 @@ public class CommandRouter {
             .addCommand("shell", shell)
             .build();
 
+        var fileJc = jc.getCommands()
+            .get("file");
+        fileJc.addCommand("list", fileSubcommands.list());
+        fileJc.addCommand("show", fileSubcommands.show());
+        fileJc.addCommand("scan", fileSubcommands.scan());
+        fileJc.addCommand("publish-files", fileSubcommands.publishFiles());
+        fileJc.addCommand("publish-status", fileSubcommands.publishStatus());
+        fileJc.addCommand("publish-music", fileSubcommands.publishMusic());
+        fileJc.addCommand("publish-gps", fileSubcommands.publishGps());
+        fileJc.addCommand("tag-rename", fileSubcommands.tagRename());
+        fileJc.addCommand("tag-replace", fileSubcommands.tagReplace());
+        fileJc.addCommand("metadata-update", fileSubcommands.metadataUpdate());
+        fileJc.setConsole(console);
+
         var adminJc = jc.getCommands()
             .get("admin");
         adminJc.addCommand("list-groups", adminListGroups);
+        adminJc.addCommand("list-tags", adminListTags);
         adminJc.addCommand("publish-group", adminPublishGroup);
         adminJc.addCommand("publish-groups", adminPublishGroups);
         adminJc.addCommand("publish-site-files", adminPublishSiteFiles);
@@ -196,6 +237,22 @@ public class CommandRouter {
 
         if (args.length == 0) {
             jc.usage();
+            return;
+        }
+
+        var legacy = LEGACY_COMMANDS.get(args[0]);
+        if (legacy != null) {
+            err.println("Since version 2.0 the command '"
+                    + args[0]
+                    + "' is '"
+                    + legacy
+                    + "': the file backend commands are grouped under 'file' and the "
+                    + "admin backend commands under 'admin'. Run: vf-cli "
+                    + legacy
+                    + (args.length > 1 ? " "
+                            + String.join(" ", List.of(args)
+                                .subList(1, args.length))
+                            : ""));
             return;
         }
 
@@ -223,36 +280,8 @@ public class CommandRouter {
         try {
             switch (command) {
                 case "login" -> login(login);
-                case "files-list" -> fileCommands.listFiles(list);
-                case "file-show" -> fileCommands.showFile(show);
-                case "publish-music" -> fileCommands.publishMusic(publishMusic.monitor
-                                                                  || shellMode);
-                case "publish-gps" -> {
-                    publishGps.monitor |= shellMode;
-                    fileCommands.publishGps(publishGps);
-                }
-                case "publish-files" -> {
-                    publishFiles.monitor |= shellMode;
-                    fileCommands.publishFiles(publishFiles);
-                }
-                case "publish-status" -> fileCommands.publishStatus(publishStatus);
-                case "scan" -> {
-                    scan.monitor |= shellMode;
-                    fileCommands.scan(scan);
-                }
-                case "tag-rename" -> {
-                    tagRename.monitor |= shellMode;
-                    fileCommands.renameTag(tagRename);
-                }
-                case "tag-replace" -> {
-                    tagReplace.monitor |= shellMode;
-                    fileCommands.replaceTag(tagReplace);
-                }
-                case "metadata-update" -> {
-                    metadataUpdate.monitor |= shellMode;
-                    fileCommands.updateMetadata(metadataUpdate);
-                }
-                case "admin" -> admin(adminJc, adminListGroups, adminPublishGroup, adminPublishGroups, adminPublishSiteFiles);
+                case "file" -> file(fileJc, fileSubcommands);
+                case "admin" -> admin(adminJc, adminListGroups, adminListTags, adminPublishGroup, adminPublishGroups, adminPublishSiteFiles);
                 case "tasks" -> taskCommands.list(tasks);
                 case "task-monitor" -> taskCommands.monitor(taskMonitor);
                 case "task-cancel" -> taskCommands.cancel(taskCancel);
@@ -390,8 +419,57 @@ public class CommandRouter {
         out.println("Session removed for backend '" + activeBackend + "'.");
     }
 
-    private void admin(JCommander adminJc, AdminCommands.AdminListGroupsCommand listGroups, AdminCommands.AdminPublishGroupCommand publishGroup,
-            AdminCommands.AdminPublishGroupsCommand publishGroups, AdminCommands.AdminPublishSiteFilesCommand publishSiteFiles) throws Exception {
+    /** The parsed argument objects of the {@code file} group, one per subcommand */
+    private record FileSubcommands(FileCommands.ListCommand list, FileCommands.ShowCommand show, FileCommands.ScanCommand scan,
+            FileCommands.PublishFilesCommand publishFiles, FileCommands.PublishStatusCommand publishStatus, PublishMusicCommand publishMusic,
+            FileCommands.PublishGpsCommand publishGps, FileCommands.TagRenameCommand tagRename, FileCommands.TagReplaceCommand tagReplace,
+            FileCommands.MetadataUpdateCommand metadataUpdate) {}
+
+    @SuppressWarnings("CyclomaticComplexity")
+    private void file(JCommander fileJc, FileSubcommands sub) throws Exception {
+        var subCommand = fileJc.getParsedCommand();
+        if (subCommand == null) {
+            fileJc.usage();
+            return;
+        }
+        switch (subCommand) {
+            case "list" -> fileCommands.listFiles(sub.list());
+            case "show" -> fileCommands.showFile(sub.show());
+            case "scan" -> {
+                sub.scan().monitor |= shellMode;
+                fileCommands.scan(sub.scan());
+            }
+            case "publish-files" -> {
+                sub.publishFiles().monitor |= shellMode;
+                fileCommands.publishFiles(sub.publishFiles());
+            }
+            case "publish-status" -> fileCommands.publishStatus(sub.publishStatus());
+            case "publish-music" -> fileCommands.publishMusic(sub.publishMusic().monitor
+                                                              || shellMode,
+                    sub.publishMusic().publishToSite, sub.publishMusic().acls);
+            case "publish-gps" -> {
+                sub.publishGps().monitor |= shellMode;
+                fileCommands.publishGps(sub.publishGps());
+            }
+            case "tag-rename" -> {
+                sub.tagRename().monitor |= shellMode;
+                fileCommands.renameTag(sub.tagRename());
+            }
+            case "tag-replace" -> {
+                sub.tagReplace().monitor |= shellMode;
+                fileCommands.replaceTag(sub.tagReplace());
+            }
+            case "metadata-update" -> {
+                sub.metadataUpdate().monitor |= shellMode;
+                fileCommands.updateMetadata(sub.metadataUpdate());
+            }
+            default -> fileJc.usage();
+        }
+    }
+
+    private void admin(JCommander adminJc, AdminCommands.AdminListGroupsCommand listGroups, AdminCommands.AdminListTagsCommand listTags,
+            AdminCommands.AdminPublishGroupCommand publishGroup, AdminCommands.AdminPublishGroupsCommand publishGroups,
+            AdminCommands.AdminPublishSiteFilesCommand publishSiteFiles) throws Exception {
         var subCommand = adminJc.getParsedCommand();
         if (subCommand == null) {
             adminJc.usage();
@@ -399,6 +477,7 @@ public class CommandRouter {
         }
         switch (subCommand) {
             case "list-groups" -> adminCommands.listGroups(listGroups, requireSession(SessionStore.BACKEND_ADMIN));
+            case "list-tags" -> adminCommands.listTags(listTags, requireSession(SessionStore.BACKEND_ADMIN));
             case "publish-group" -> {
                 publishGroup.monitor |= shellMode;
                 adminCommands.publishGroup(publishGroup, requireSession(SessionStore.BACKEND_ADMIN));
@@ -559,9 +638,21 @@ public class CommandRouter {
         String username;
     }
 
+    @Parameters(commandDescription = "Vempain File backend commands (list, show, scan, publish-files, publish-status, publish-music, publish-gps, tag-rename, "
+            + "tag-replace, metadata-update)")
+    private static class FileGroupCommand {
+    }
+
     @Parameters(commandDescription = "Generate and publish music dataset")
     private static class PublishMusicCommand {
 
+        @Parameter(names = "--publish-to-site", description = "Also publish the created data set to the website (the admin backend's publishing task)")
+        boolean publishToSite;
+        @Parameter(names = "--acl",
+                description = "Admin user or unit granted privileges on the data set, user:<id>:<privileges> or unit:<id>:<privileges> "
+                        + "with the privileges as letters out of r, c, m and d (repeatable); 'none' removes every additional grantee of an existing data set; "
+                        + "without --acl the current grantees stay")
+        List<String> acls;
         @Parameter(names = "--monitor", description = "Open the full-screen task monitor after submission")
         boolean monitor;
     }
@@ -618,8 +709,14 @@ public class CommandRouter {
             }
             var command = words.getFirst();
 
+            if ("file".equals(command)) {
+                completeFileSubcommands(words, line.wordIndex(), currentWord, candidates);
+                debugCandidates(currentWord, candidates);
+                return;
+            }
+
             if ("admin".equals(command)) {
-                completeAdminSubcommands(words, line.wordIndex(), currentWord, candidates);
+                completeGroupSubcommands(ADMIN_OPTIONS, words, line.wordIndex(), currentWord, candidates);
                 debugCandidates(currentWord, candidates);
                 return;
             }
@@ -631,64 +728,67 @@ public class CommandRouter {
             }
 
             completeCommandOptions(command, words, line.wordIndex(), currentWord, candidates);
+            debugCandidates(currentWord, candidates);
+        }
 
-            if (wantsLocalPathCompletion(command, words, line.wordIndex(), currentWord)) {
-                localPathCompleter.complete(currentWord, candidates);
-                debugCandidates(currentWord, candidates);
+        /** The {@code file} group: its subcommands and options, then the file types of {@code list}/{@code show} and the backend paths of {@code scan} */
+        private void completeFileSubcommands(List<String> words, int wordIndex, String currentWord, List<Candidate> candidates) {
+            if (completeGroupSubcommands(FILE_OPTIONS, words, wordIndex, currentWord, candidates)) {
                 return;
             }
-
-            if (("files-list".equals(command)
-                 || "file-show".equals(command))
-                && wantsTypeCompletion(words, line.wordIndex())) {
+            var subcommand = words.size() > 1 ? words.get(1) : "";
+            if (("list".equals(subcommand)
+                 || "show".equals(subcommand))
+                && wantsTypeCompletion(words, wordIndex)) {
                 FileCommands.fileTypes()
                     .stream()
                     .sorted()
                     .forEach(type -> candidates.add(new Candidate(type)));
                 return;
             }
-
-            if ("scan".equals(command)) {
-                fileCommands.completeScanPath(words, line.wordIndex(), candidates, currentWord, debugCompletion, err);
+            if ("scan".equals(subcommand)
+                && wordIndex >= 1
+                && words.size() > 1) {
+                // The scan completion sees the words from its own subcommand on, as it did when scan was a top level command
+                fileCommands.completeScanPath(words.subList(1, words.size()), wordIndex - 1, candidates, currentWord, debugCompletion, err);
             }
-            debugCandidates(currentWord, candidates);
         }
 
+        /**
+         * Completes a backend group ({@code file}, {@code admin}): the subcommand names in the second word, the local file of an {@link #LOCAL_PATH_OPTIONS}
+         * option, and the options of the subcommand when the user asks for them (the first word after the subcommand, a dash, or a lone dash before).
+         *
+         * @return {@code true} when the word was fully handled (subcommand names or a local path), {@code false} when the group may add more candidates
+         */
         @SuppressWarnings("CyclomaticComplexity")
-        private void completeAdminSubcommands(List<String> words, int wordIndex, String currentWord, List<Candidate> candidates) {
+        private boolean completeGroupSubcommands(Map<String, List<String>> groupOptions, List<String> words, int wordIndex, String currentWord,
+                List<Candidate> candidates) {
             if (wordIndex == 1) {
-                for (var sub : List.of("list-groups", "publish-group", "publish-groups", "publish-site-files")) {
+                for (var sub : groupOptions.keySet()) {
                     if (currentWord.isBlank()
                         || sub.startsWith(currentWord)) {
                         candidates.add(new Candidate(sub));
                     }
                 }
-                return;
+                return true;
             }
 
             var subcommand = words.size() > 1 ? words.get(1) : "";
-            var options = switch (subcommand) {
-                case "list-groups" -> List.of("--details", "--search", "--page", "--size", "--modified-after-publish");
-                case "publish-group" -> List.of("--id", "--message", "--publish-datetime", "--monitor");
-                case "publish-groups" -> List.of("--ids", "--monitor");
-                case "publish-site-files" -> List.of("--ids-file", "--monitor");
-                default -> List.<String>of();
-            };
+            var options = groupOptions.getOrDefault(subcommand, List.of());
 
-            if ("publish-site-files".equals(subcommand)
-                && wantsLocalPathCompletion("publish-site-files", words, wordIndex, currentWord)) {
+            if (wantsLocalPathCompletion(subcommand, words, wordIndex, currentWord)) {
                 localPathCompleter.complete(currentWord, candidates);
-                debugCandidates(currentWord, candidates);
-                return;
+                return true;
             }
 
             var previous = wordIndex > 0 ? words.get(Math.max(0, wordIndex - 1)) : "";
-            var suggest = currentWord.isBlank()
+            var suggest = (wordIndex == 2
+                           && currentWord.isBlank())
                           || currentWord.startsWith("-")
                           || "--".equals(previous)
                           || "-".equals(previous);
             if (!suggest) {
-                return;
+                return false;
             }
 
             for (var option : options) {
@@ -697,6 +797,7 @@ public class CommandRouter {
                     candidates.add(new Candidate(option));
                 }
             }
+            return false;
         }
 
         @SuppressWarnings("CyclomaticComplexity")

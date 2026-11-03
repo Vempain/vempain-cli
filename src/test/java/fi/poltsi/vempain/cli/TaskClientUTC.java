@@ -86,6 +86,19 @@ class TaskClientUTC {
         assertNull(TaskClient.taskId(new org.json.JSONObject()));
     }
 
+    @Test
+    void taskId_readsTheTaskNestedInTheAdminPublishResponse() {
+        // PublishResponse of the admin backend: result, message, timestamp and the accepted task as an object
+        var publishResponse = new org.json.JSONObject("{\"result\":\"OK\",\"message\":\"Publishing of the selected files started\","
+                + "\"timestamp\":\"2026-10-31T21:11:01Z\",\"task\":{\"task_id\":\"a50a1b89\",\"type\":\"PUBLISH_SELECTED_FILES\","
+                + "\"title\":\"Publish 12126 selected files\",\"status\":\"RUNNING\",\"total_steps\":12126}}");
+        assertEquals("a50a1b89", TaskClient.taskId(publishResponse));
+        assertEquals("t-3", TaskClient.taskId(new org.json.JSONObject().put("task", new org.json.JSONObject().put("taskId", "t-3"))));
+        // a scheduled publish carries no task, and a task object without an id names none either
+        assertNull(TaskClient.taskId(new org.json.JSONObject("{\"result\":\"OK\",\"message\":\"scheduled\"}")));
+        assertNull(TaskClient.taskId(new org.json.JSONObject().put("task", new org.json.JSONObject().put("status", "QUEUED"))));
+    }
+
     private static SessionStore.Session session(HttpServer server, String prefix) {
         return new SessionStore.Session("file", "http://localhost:"
                 + server.getAddress()

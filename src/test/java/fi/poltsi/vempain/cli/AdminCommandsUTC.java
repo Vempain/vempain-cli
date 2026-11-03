@@ -92,7 +92,8 @@ class AdminCommandsUTC {
     @Test
     void publishSiteFiles_readsIdsAndSubmitsBackgroundTask() throws Exception {
         try (var server = new CliIntegrationUTC.MockApiServer()) {
-            server.registerJson("/api/content-management/file/site-files/publish-selected", "{\"task_id\":\"site-publish-1\",\"status\":\"QUEUED\"}");
+            server.registerJson("/api/content-management/file/site-files/publish-selected",
+                    "{\"result\":\"OK\",\"message\":\"Publishing started\",\"timestamp\":\"2026-10-31T21:11:01Z\",\"task\":{\"task_id\":\"site-publish-1\",\"type\":\"PUBLISH\",\"title\":\"Publish 2 selected files\",\"status\":\"RUNNING\",\"total_steps\":2}}");
             var idsFile = tempDir.resolve("site-file-ids.txt");
             Files.writeString(idsFile, "# files to publish\n12\n12\n 13 \n");
             var outBytes = new ByteArrayOutputStream();

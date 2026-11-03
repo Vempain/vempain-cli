@@ -5,6 +5,34 @@ Standalone command-line client for the Vempain backends: it talks to both Vempai
 For historical reasons the installed command is `vf-cli` and the RPM package is named `vempain-file-cli`; both serve the file and the admin
 backend alike. All state of the tool lives in `~/.config/vempain-cli/` (see [Local state](#local-state)).
 
+## Command structure (since 2.0)
+
+Every backend specific command sits under the backend it talks to, so it is always clear which session it needs:
+
+|          Group          |                                                                 Commands                                                                  |
+|-------------------------|-------------------------------------------------------------------------------------------------------------------------------------------|
+| `file` (file backend)   | `list`, `show`, `scan`, `publish-files`, `publish-status`, `publish-music`, `publish-gps`, `tag-rename`, `tag-replace`, `metadata-update` |
+| `admin` (admin backend) | `list-groups`, `list-tags`, `publish-group`, `publish-groups`, `publish-site-files`                                                       |
+| both backends           | `login`, `logout`, `session show|use`, `tasks`, `task-monitor`, `task-cancel` (`--backend file|admin`), `shell`                           |
+
+Version 2.0 is a breaking change for scripts written against 1.x: the former top level file backend commands moved into the `file` group.
+Typing an old name prints the new one instead of running anything.
+
+|        1.x        |          2.0           |
+|-------------------|------------------------|
+| `files-list`      | `file list`            |
+| `file-show`       | `file show`            |
+| `scan`            | `file scan`            |
+| `publish-files`   | `file publish-files`   |
+| `publish-status`  | `file publish-status`  |
+| `publish-music`   | `file publish-music`   |
+| `publish-gps`     | `file publish-gps`     |
+| `tag-rename`      | `file tag-rename`      |
+| `tag-replace`     | `file tag-replace`     |
+| `metadata-update` | `file metadata-update` |
+
+The `admin` commands, `login`, `logout`, `session`, the task commands and `shell` are unchanged.
+
 ## Features implemented
 
 - Login with backend URL + username and interactive password prompt, store backend-scoped JWT sessions locally
@@ -13,18 +41,22 @@ backend alike. All state of the tool lives in `~/.config/vempain-cli/` (see [Loc
 - Deterministic file show routing: `--type` + `--id`
 - Metadata + content display (text rendered, binary summarized)
 - Formatted tabular output for file listings with truncation for long values
-- `file-show` supports `--raw` and `--content-limit <n>`
-- Data publish commands (music + gps-time-series)
-- Bulk file publishing from a UTF-8 file of file IDs (`publish-files --ids-file`)
-- Publication state of a file or file group (`publish-status --file-id <id>` or `--file-group-id <id>`): the site file or gallery an earlier
+- `file show` supports `--raw` and `--content-limit <n>`
+- Data publish commands (music + gps-time-series); `--acl user:<id>:<privileges>` / `--acl unit:<id>:<privileges>` (repeatable, privileges as
+  letters out of `r`, `c`, `m`, `d`; the IDs are admin backend users and units, see `file publish-status` for the shape of the current
+  grantees) grant admin users and units privileges on the data set in the admin backend, `--acl none` removes every additional grantee of an
+  existing set, and without `--acl` the current grantees stay
+- Bulk file publishing from a UTF-8 file of file IDs (`file publish-files --ids-file`)
+- Publication state of a file or file group (`file publish-status --file-id <id>` or `--file-group-id <id>`): the site file or gallery an earlier
   publish created, the site files of the gallery and the admin users and units that publish granted access to (`--raw` prints the JSON)
 - Scan command for original/export directories
-- Tag and metadata rewrites across all files, as background tasks of the file backend: `tag-rename --tag <name> --to <new-name>` (keeps the
-  current translations unless `--name-de|en|es|fi|sv` replace them), `tag-replace --tag <name> --with <existing-tag>` and
-  `metadata-update --group <group> --key <key> --value <current> --new-value <new>` (`--remove` deletes the entry from the files)
+- Tag and metadata rewrites across all files, as background tasks of the file backend: `file tag-rename --tag <name> --to <new-name>` (keeps the
+  current translations unless `--name-de|en|es|fi|sv` replace them), `file tag-replace --tag <name> --with <existing-tag>` and
+  `file metadata-update --group <group> --key <key> --value <current> --new-value <new>` (`--remove` deletes the entry from the files)
 - Background task listing, cancellation, and a Lanterna full-screen task monitor
 - Admin group (gallery) commands:
   - `admin list-groups` (`--modified-after-publish` lists only the galleries modified after their last release to the website)
+  - `admin list-tags` (`--search`, `--limit`: the tags the admin backend knows, from the published files and the pages)
   - `admin publish-group --id <id>`
   - `admin publish-groups --ids <id1,id2,...>`
 - Full-screen interactive shell (`vf-cli shell`, Lanterna TUI):
@@ -34,7 +66,7 @@ backend alike. All state of the tool lives in `~/.config/vempain-cli/` (see [Loc
     expired token) is not polled again until you log in to it anew, and the session window shows `session invalid`
   - output window and command line below them; the password of `login` is asked in a masked dialog (Esc cancels)
   - tab completion: command names and options, file types in lowercase, backend path completion for scan directories, and local filesystem
-    completion for options that name a local file (`publish-files --ids-file`: relative to the working directory, absolute, or `~/...`;
+    completion for options that name a local file (`file publish-files --ids-file`: relative to the working directory, absolute, or `~/...`;
     directories stay open for further completion and a completed name containing spaces is quoted)
     - shell commands appended to `~/.config/vempain-cli/history` as `<datetime>\t<command>`, using `YYYY-MM-DDThh:mm:ss`; previous commands are available with
       the
@@ -84,21 +116,26 @@ java -jar build/libs/vf-cli.jar login --backend file --url http://localhost:8080
 java -jar build/libs/vf-cli.jar login --backend admin --url http://localhost:9090/api --username admin
 java -jar build/libs/vf-cli.jar session show
 java -jar build/libs/vf-cli.jar session use --backend admin
-java -jar build/libs/vf-cli.jar files-list --type music --page 0 --size 25 --sort-by created --direction DESC
-java -jar build/libs/vf-cli.jar file-show --type music --id 42
-java -jar build/libs/vf-cli.jar file-show --type music --id 42 --content-limit 2048
-java -jar build/libs/vf-cli.jar file-show --type music --id 42 --raw
-java -jar build/libs/vf-cli.jar publish-music
-java -jar build/libs/vf-cli.jar publish-files --ids-file file-ids.txt
+java -jar build/libs/vf-cli.jar file list --type music --page 0 --size 25 --sort-by created --direction DESC
+java -jar build/libs/vf-cli.jar file show --type music --id 42
+java -jar build/libs/vf-cli.jar file show --type music --id 42 --content-limit 2048
+java -jar build/libs/vf-cli.jar file show --type music --id 42 --raw
+java -jar build/libs/vf-cli.jar file publish-music
+java -jar build/libs/vf-cli.jar file publish-music --publish-to-site   # create the data set and start its website publishing too
+java -jar build/libs/vf-cli.jar file publish-music --acl user:12:rm --acl unit:3:r   # grant admin user 12 read+modify and unit 3 read on the data set
+java -jar build/libs/vf-cli.jar file publish-gps --file-group-id 7 --time-series-name trip --acl none   # remove every additional grantee
+java -jar build/libs/vf-cli.jar file publish-files --ids-file file-ids.txt
 java -jar build/libs/vf-cli.jar admin list-groups --details FULL
 java -jar build/libs/vf-cli.jar admin list-groups --modified-after-publish
+java -jar build/libs/vf-cli.jar admin list-tags --search summer --limit 10
 java -jar build/libs/vf-cli.jar admin publish-group --id 7 --message "Publish now"
 java -jar build/libs/vf-cli.jar admin publish-groups --ids 7,8,9
-java -jar build/libs/vf-cli.jar scan --original-directory /music
-java -jar build/libs/vf-cli.jar tag-rename --tag "I maailmansota" --to "ensimmäinen maailmansota" --monitor
-java -jar build/libs/vf-cli.jar tag-replace --tag duplicate --with canonical --monitor
-java -jar build/libs/vf-cli.jar metadata-update --group XMP-dc --key Creator --value "Jane Doe" --new-value "Jane A. Doe" --monitor
-java -jar build/libs/vf-cli.jar metadata-update --group XMP-dc --key Creator --value "Jane A. Doe" --remove
+java -jar build/libs/vf-cli.jar file scan --original-directory /music
+java -jar build/libs/vf-cli.jar file scan --original-directory /music --export-directory /music --follow   # prints every imported file: [n/total] Scanned <dir>/<file>
+java -jar build/libs/vf-cli.jar file tag-rename --tag "I maailmansota" --to "ensimmäinen maailmansota" --monitor
+java -jar build/libs/vf-cli.jar file tag-replace --tag duplicate --with canonical --monitor
+java -jar build/libs/vf-cli.jar file metadata-update --group XMP-dc --key Creator --value "Jane Doe" --new-value "Jane A. Doe" --monitor
+java -jar build/libs/vf-cli.jar file metadata-update --group XMP-dc --key Creator --value "Jane A. Doe" --remove
 java -jar build/libs/vf-cli.jar tasks --backend file
 java -jar build/libs/vf-cli.jar task-monitor --backend file --task-id <task-id>
 java -jar build/libs/vf-cli.jar task-cancel --backend file --task-id <task-id>
@@ -113,10 +150,10 @@ interactively and is not passed on the command line. The URL must point to the b
 ```bash
 vf-cli login --backend file --url https://files.example.com/api --username <file-backend-user>
 vf-cli session show
-vf-cli publish-files --ids-file ../site_file_202610111824.csv
+vf-cli file publish-files --ids-file ../site_file_202610111824.csv
 ```
 
-`publish-files` requires a session for the **file backend**. The file backend then uses its configured service-to-service API token to send the files to
+`file publish-files` requires a session for the **file backend**. The file backend then uses its configured service-to-service API token to send the files to
 the admin backend; an admin-backend CLI login is not required for this operation. A `401 Unauthorized` response from `/publish/files` means that the
 file-backend session is missing, expired, or was created against the wrong URL. Log in again with `--backend file` and verify the saved URL with
 `vf-cli session show`.
@@ -132,7 +169,7 @@ The same setup can be performed in shell mode, which is useful when running seve
 vf-cli shell
 vempain-file> login --backend file --url https://files.example.com/api --username <file-backend-user>
 vempain-file> session show
-vempain-file> publish-files --ids-file ../site_file_202610111824.csv
+vempain-file> file publish-files --ids-file ../site_file_202610111824.csv
 vempain-file> exit
 ```
 

@@ -45,11 +45,11 @@ class CommandHistoryUTC {
             .resolve("nested/history");
         var history = new CommandHistory(historyFile);
 
-        history.append("files-list --page 1");
+        history.append("file list --page 1");
 
         var line = Files.readString(historyFile)
             .stripTrailing();
-        assertTrue(line.matches("\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\tfiles-list --page 1"));
+        assertTrue(line.matches("\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\tfile list --page 1"));
     }
 
     @Test
