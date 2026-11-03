@@ -19,7 +19,10 @@ The package keeps its historical name; it is not limited to the file backend.
 
 %build
 # No build step here. The reusable workflow injects a prebuilt fat jar
-# into packaging/rpm/vf-cli.jar before rpmbuild runs.
+# into packaging/rpm/vf-cli.jar before rpmbuild runs, and prepends a dated
+# %changelog entry for the release: rpm clamps the packaged files' dates
+# to the newest changelog entry, so do not rely on the entries below for
+# the build date.
 
 %install
 install -d %{buildroot}/usr/bin

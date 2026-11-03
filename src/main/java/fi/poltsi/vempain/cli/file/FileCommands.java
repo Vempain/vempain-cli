@@ -121,19 +121,96 @@ public class FileCommands {
     }
 
     public void publishMusic(boolean monitor) throws Exception {
+        publishMusic(monitor, false, null);
+    }
+
+    /**
+     * @param publishToSite also start the admin backend's publishing of the data set to the website (`publish_to_site`), "Create and publish" in the SPA
+     * @param aclSpecs      the {@code --acl} values (see {@link #parseAclSpecs}); null or empty sends no list, so the grantees of an existing set stay
+     */
+    public void publishMusic(boolean monitor, boolean publishToSite, List<String> aclSpecs) throws Exception {
+        var acls = parseAclSpecs(aclSpecs);
         var session = requireSession();
-        var response = transport.postJson(session, "/data-publish/music", new JSONObject());
+        var request = new JSONObject();
+        if (publishToSite) {
+            request.put("publish_to_site", true);
+        }
+        if (acls != null) {
+            request.put("acls", acls);
+        }
+        var response = transport.postJson(session, "/data-publish/music", request);
         out.println(response.toString(2));
         monitor(response, session, monitor);
     }
 
     public void publishGps(PublishGpsCommand command) throws Exception {
+        var acls = parseAclSpecs(command.acls);
         var session = requireSession();
         var request = new JSONObject().put("file_group_id", command.fileGroupId)
             .put("time_series_name", command.timeSeriesName);
+        if (command.publishToSite) {
+            request.put("publish_to_site", true);
+        }
+        if (acls != null) {
+            request.put("acls", acls);
+        }
         var response = transport.postJson(session, "/data-publish/gps-timeseries", request);
         out.println(response.toString(2));
         monitor(response, session, command.monitor);
+    }
+
+    /**
+     * The {@code --acl} values of the data set commands as the {@code acls} list of the request: every value is {@code user:<id>:<privileges>} or
+     * {@code unit:<id>:<privileges>} with the privileges as letters out of {@code r} (read), {@code c} (create), {@code m} (modify) and {@code d} (delete), for
+     * example {@code user:12:rm}. The single value {@code none} sends an empty list, which removes every additional grantee of an existing data set. Null or no
+     * values answer null: no list is sent and the grantees of an existing set stay as they are.
+     *
+     * @throws IllegalArgumentException for a value that does not have that shape
+     */
+    public static JSONArray parseAclSpecs(List<String> aclSpecs) {
+        if (aclSpecs == null
+            || aclSpecs.isEmpty()) {
+            return null;
+        }
+        var acls = new JSONArray();
+        if (aclSpecs.size() == 1
+            && "none".equalsIgnoreCase(aclSpecs.get(0)
+                .trim())) {
+            return acls;
+        }
+
+        for (var spec : aclSpecs) {
+            var parts = spec.trim()
+                .split(":");
+            if (parts.length != 3
+                || !(parts[0].equalsIgnoreCase("user")
+                     || parts[0].equalsIgnoreCase("unit"))) {
+                throw new IllegalArgumentException("Invalid --acl value '" + spec + "': use user:<id>:<privileges> or unit:<id>:<privileges>, or none");
+            }
+            long id;
+            try {
+                id = Long.parseLong(parts[1]);
+            } catch (NumberFormatException e) {
+                throw new IllegalArgumentException("Invalid --acl value '" + spec + "': the ID must be a positive number");
+            }
+            if (id < 1) {
+                throw new IllegalArgumentException("Invalid --acl value '" + spec + "': the ID must be a positive number");
+            }
+            var privileges = parts[2].toLowerCase(Locale.ROOT);
+            if (privileges.isEmpty()
+                || !privileges.matches("[rcmd]+")) {
+                throw new IllegalArgumentException("Invalid --acl value '" + spec + "': the privileges are letters out of r, c, m and d");
+            }
+            var acl = new JSONObject();
+            acl.put("user_id", parts[0].equalsIgnoreCase("user") ? Long.valueOf(id) : JSONObject.NULL);
+            acl.put("unit_id", parts[0].equalsIgnoreCase("unit") ? Long.valueOf(id) : JSONObject.NULL);
+            acl.put("read_privilege", privileges.contains("r"));
+            acl.put("create_privilege", privileges.contains("c"));
+            acl.put("modify_privilege", privileges.contains("m"));
+            acl.put("delete_privilege", privileges.contains("d"));
+            acls.put(acl);
+        }
+        return acls;
     }
 
     /**
@@ -269,15 +346,43 @@ public class FileCommands {
         }
     }
 
+    /**
+     * Starts a scan ({@code POST /scan-files}, a background task with one step per file). {@code --follow} stays on the command line and prints every file the
+     * backend reports ({@code [n/total] Scanned
+     *
+    <dir>
+     * /<file>}), {@code --monitor} opens the full-screen monitor instead.
+     */
     public void scan(ScanCommand command) throws Exception {
         var session = requireSession();
+        validateScanCommand(command);
+
+        var response = transport.postJson(session, "/scan-files", scanRequest(command));
+        if (command.follow) {
+            followScan(session, response, command.intervalMs);
+            return;
+        }
+        printScanResponse(response);
+        monitor(response, session, command.monitor);
+    }
+
+    private void validateScanCommand(ScanCommand command) {
         if ((command.originalDirectory == null
              || command.originalDirectory.isBlank())
             && (command.exportDirectory == null
                 || command.exportDirectory.isBlank())) {
             throw new IllegalArgumentException("Provide --original-directory and/or --export-directory");
         }
+        if (command.follow
+            && command.monitor) {
+            throw new IllegalArgumentException("Use either --follow or --monitor, not both");
+        }
+        if (command.intervalMs < 50) {
+            throw new IllegalArgumentException("--interval-ms must be at least 50");
+        }
+    }
 
+    private JSONObject scanRequest(ScanCommand command) {
         var request = new JSONObject();
         if (command.originalDirectory != null
             && !command.originalDirectory.isBlank()) {
@@ -287,15 +392,25 @@ public class FileCommands {
             && !command.exportDirectory.isBlank()) {
             request.put("export_directory", command.exportDirectory);
         }
+        return request;
+    }
 
-        var response = transport.postJson(session, "/scan-files", request);
+    private void followScan(SessionStore.Session session, JSONObject response, long intervalMs) throws Exception {
+        var taskId = TaskClient.taskId(response);
+        if (taskId == null) {
+            throw new IllegalStateException("The backend did not return a task_id; cannot follow the scan.");
+        }
+        out.println("Scan task " + taskId + " started");
+        taskMonitor.printFinal(taskMonitor.follow(session, taskId, java.time.Duration.ofMillis(intervalMs)));
+    }
+
+    private void printScanResponse(JSONObject response) {
         if (response.has("items")
             && response.get("items") instanceof JSONArray arr) {
             out.println(arr.toString(2));
         } else {
             out.println(response.toString(2));
         }
-        monitor(response, session, command.monitor);
     }
 
     /**
@@ -646,6 +761,13 @@ public class FileCommands {
         public long fileGroupId;
         @Parameter(names = { "--time-series-name" }, required = true, description = "Time-series identifier")
         public String timeSeriesName;
+        @Parameter(names = "--publish-to-site", description = "Also publish the created data set to the website (the admin backend's publishing task)")
+        public boolean publishToSite;
+        @Parameter(names = "--acl",
+                description = "Admin user or unit granted privileges on the data set, user:<id>:<privileges> or unit:<id>:<privileges> "
+                        + "with the privileges as letters out of r, c, m and d (repeatable); 'none' removes every additional grantee of an existing data set; "
+                        + "without --acl the current grantees stay")
+        public List<String> acls;
         @Parameter(names = "--monitor", description = "Open the full-screen task monitor after submission")
         public boolean monitor;
     }
@@ -726,6 +848,10 @@ public class FileCommands {
         public String originalDirectory;
         @Parameter(names = { "-e", "--export-directory" }, description = "Export directory path")
         public String exportDirectory;
+        @Parameter(names = { "-f", "--follow" }, description = "Stay on the command line and print every file as the backend imports it ([n/total] file)")
+        public boolean follow;
+        @Parameter(names = "--interval-ms", description = "Poll interval of --follow in milliseconds")
+        public long intervalMs = 250;
         @Parameter(names = "--monitor", description = "Open the full-screen task monitor after submission")
         public boolean monitor;
     }

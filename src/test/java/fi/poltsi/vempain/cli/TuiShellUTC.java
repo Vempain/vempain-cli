@@ -154,10 +154,10 @@ class TuiShellUTC {
         assertTrue(initial.stream()
             .anyMatch(line -> line.contains("vempain-unauthicated> ")));
 
-        type("files-l");
+        type("file li");
         press(KeyType.Tab);
-        awaitScreen(screen -> shows(screen, "vempain-unauthicated> files-list "));
-        press(KeyType.Backspace, "files-list ".length());
+        awaitScreen(screen -> shows(screen, "vempain-unauthicated> file list "));
+        press(KeyType.Backspace, "file list ".length());
 
         type("login --backend file --url " + baseUrl() + " --username admin");
         press(KeyType.Enter);
@@ -261,7 +261,7 @@ class TuiShellUTC {
         startShell(sessionStore, prompt -> fail("no password is asked"));
         awaitScreen(screen -> shows(screen, "vempain-file> "));
 
-        type("tag-replace --tag old --with new");
+        type("file tag-replace --tag old --with new");
         press(KeyType.Enter);
 
         var screen = awaitScreen(current -> shows(current, "Submitted replacement of tag 'old' with 'new'.")
@@ -303,7 +303,7 @@ class TuiShellUTC {
         startShell(sessionStore, prompt -> fail("no password expected"));
         awaitScreen(screen -> shows(screen, "vempain-file> "));
 
-        type("files-list --type music");
+        type("file list --type music");
         press(KeyType.Enter);
         var end = awaitScreen(screen -> shows(screen, LAST));
         assertFalse(shows(end, track(1)), "the output is longer than its window, so the first lines are scrolled out of view");
@@ -315,7 +315,7 @@ class TuiShellUTC {
         assertFalse(shows(pageUp, track(TRACKS)));
 
         press(KeyType.PageUp, 5);
-        awaitScreen(screen -> shows(screen, "vempain-file> files-list --type music")
+        awaitScreen(screen -> shows(screen, "vempain-file> file list --type music")
                               && shows(screen, track(1)));
 
         press(KeyType.PageDown, 5);
@@ -337,7 +337,7 @@ class TuiShellUTC {
             startShell(new SessionStore(), prompt -> fail("no password expected"));
             awaitScreen(screen -> shows(screen, "vempain-unauthicated> "));
 
-            type("files-list --unknown");
+            type("file list --unknown");
             press(KeyType.Enter);
             awaitScreen(screen -> shows(screen, "Usage: vf-cli")
                                   || pageUp());

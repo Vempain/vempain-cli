@@ -78,7 +78,7 @@ class CommandRouterUTC {
             assertTrue(router.runShellLine(null, false));
             assertTrue(err().isBlank(), "blank lines are not recorded");
 
-            assertTrue(router.runShellLine("metadata-update --group \"XMP dc\" --key 'Cre ator' --value x --new-value y", false));
+            assertTrue(router.runShellLine("file metadata-update --group \"XMP dc\" --key 'Cre ator' --value x --new-value y", false));
             var request = server.lastRequestBody();
             assertEquals("XMP dc", request.getString("metadata_group"), "double quoted arguments stay one token");
             assertEquals("Cre ator", request.getString("metadata_key"), "single quoted arguments stay one token");
@@ -174,7 +174,8 @@ class CommandRouterUTC {
     void completer_completesAdminSubcommandsAndTheirOptions() {
         var completer = completer();
 
-        assertEquals(Set.of("list-groups"), complete(completer, List.of("admin", "li"), 1, "li"));
+        assertEquals(Set.of("list-groups", "list-tags"), complete(completer, List.of("admin", "li"), 1, "li"));
+        assertEquals(Set.of("--search", "--limit"), complete(completer, List.of("admin", "list-tags", ""), 2, ""));
         assertEquals(Set.of("publish-site-files"), complete(completer, List.of("admin", "publish-s"), 1, "publish-s"));
         assertEquals(Set.of("--details", "--search", "--page", "--size", "--modified-after-publish"),
                 complete(completer, List.of("admin", "list-groups", ""), 2, ""));
@@ -185,6 +186,24 @@ class CommandRouterUTC {
         assertEquals(Set.of("--ids-file", "--monitor"), complete(completer, List.of("admin", "publish-site-files", "--"), 2, "--"));
         assertEquals(Set.of(), complete(completer, List.of("admin", "list-groups", "--search", "x"), 3, "x"), "option values are not completed");
         assertEquals(Set.of(), complete(completer, List.of("admin", "unknown", ""), 2, ""));
+    }
+
+    @Test
+    void completer_completesFileSubcommandsAndTheirOptions() {
+        var completer = completer();
+
+        assertEquals(Set.of("list"), complete(completer, List.of("file", "li"), 1, "li"));
+        assertEquals(Set.of("publish-files", "publish-status", "publish-music", "publish-gps"), complete(completer, List.of("file", "pub"), 1, "pub"));
+        assertEquals(Set.of("-t", "--type", "-p", "--page", "-s", "--size", "--sort-by", "--direction", "--search", "--case-sensitive"),
+                complete(completer, List.of("file", "list", ""), 2, ""));
+        assertEquals(Set.of("--to", "--tag"), complete(completer, List.of("file", "tag-rename", "--t"), 2, "--t"));
+        assertEquals(fi.poltsi.vempain.cli.file.FileCommands.fileTypes(), complete(completer, List.of("file", "show", "--type", ""), 3, ""),
+                "the file types follow --type, not the options");
+        // the completer offers every type, the shells narrow the candidates to the typed prefix themselves
+        assertEquals(fi.poltsi.vempain.cli.file.FileCommands.fileTypes(), complete(completer, List.of("file", "list", "-t", "mu"), 3, "mu"));
+        assertEquals(Set.of(), complete(completer, List.of("file", "list", "--search", "x"), 3, "x"), "option values are not completed");
+        assertEquals(Set.of(), complete(completer, List.of("file", "unknown", ""), 2, ""));
+        assertEquals(Set.of(), complete(completer, List.of("file", "scan", "-o", "/mu"), 3, "/mu"), "without a file session the scan paths stay empty");
     }
 
     @Test
@@ -211,17 +230,17 @@ class CommandRouterUTC {
         var prefix = tempHome + "/";
 
         assertEquals(Set.of(prefix + "ids.txt", prefix + "ids-old.txt"),
-                complete(completer, List.of("publish-files", "--ids-file", prefix + "id"), 2, prefix + "id"));
+                complete(completer, List.of("file", "publish-files", "--ids-file", prefix + "id"), 3, prefix + "id"));
         assertEquals(Set.of(prefix + "ids.txt", prefix + "ids-old.txt", prefix + "inbox/"),
-                complete(completer, List.of("publish-files", "--ids-file", prefix), 2, prefix), "hidden entries are not offered");
+                complete(completer, List.of("file", "publish-files", "--ids-file", prefix), 3, prefix), "hidden entries are not offered");
         // The router resolves ~ against user.home, which points at the temporary directory in these tests
-        assertEquals(Set.of("~/ids.txt", "~/ids-old.txt"), complete(completer, List.of("publish-files", "--ids-file", "~/id"), 2, "~/id"));
-        assertEquals(Set.of("--ids-file", "--monitor"), complete(completer, List.of("publish-files", "--ids-file", "-"), 2, "-"),
+        assertEquals(Set.of("~/ids.txt", "~/ids-old.txt"), complete(completer, List.of("file", "publish-files", "--ids-file", "~/id"), 3, "~/id"));
+        assertEquals(Set.of("--ids-file", "--monitor"), complete(completer, List.of("file", "publish-files", "--ids-file", "-"), 3, "-"),
                 "a dash asks for the options, not for a file");
-        assertEquals(Set.of(), complete(completer, List.of("publish-files", "--monitor", prefix), 2, prefix), "only the file options take a path");
-        assertEquals(Set.of(), complete(completer, List.of("publish-files", "--ids-file", prefix + "ids.txt", prefix), 3, prefix),
+        assertEquals(Set.of(), complete(completer, List.of("file", "publish-files", "--monitor", prefix), 3, prefix), "only the file options take a path");
+        assertEquals(Set.of(), complete(completer, List.of("file", "publish-files", "--ids-file", prefix + "ids.txt", prefix), 4, prefix),
                 "after the file value no path is completed");
-        assertEquals(Set.of(), complete(completer, List.of("scan", "--ids-file", prefix), 2, prefix), "other commands have no local file options");
+        assertEquals(Set.of(), complete(completer, List.of("file", "scan", "--ids-file", prefix), 3, prefix), "other commands have no local file options");
     }
 
     @Test
@@ -231,9 +250,9 @@ class CommandRouterUTC {
         assertTrue(complete(completer, List.of("session", "l"), 0, null).containsAll(Set.of("login", "session", "exit")),
                 "a missing word completes like an empty one");
         assertEquals(Set.of(), complete(completer, List.of(), 1, ""));
-        assertEquals(Set.of(), complete(completer, List.of("scan", "x"), -1, "x"));
-        assertEquals(Set.of(), complete(completer, List.of("files-list", "x"), -1, "x"));
-        assertEquals(Set.of(), complete(completer, List.of("files-list", "--type", "music", ""), 3, ""), "after a value no options are suggested");
+        assertEquals(Set.of(), complete(completer, List.of("file", "scan", "x"), -1, "x"));
+        assertEquals(Set.of(), complete(completer, List.of("file", "list", "x"), -1, "x"));
+        assertEquals(Set.of(), complete(completer, List.of("file", "list", "--type", "music", ""), 4, ""), "after a value no options are suggested");
     }
 
     private Completer completer() {

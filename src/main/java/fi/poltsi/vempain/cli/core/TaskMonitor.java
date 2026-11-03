@@ -78,6 +78,40 @@ public class TaskMonitor {
         screen.refresh();
     }
 
+    /**
+     * Follows a task on the plain output instead of the full-screen monitor: every poll that shows a new step count or a new message prints one line,
+     * {@code [completed/total] message}, so a scan lists the files as the backend imports them. The first read is the user's command, the polls after it are
+     * background requests that do not keep the session alive. Returns the finished task (the caller prints the summary with {@link #printFinal}). A poll only
+     * sees the latest step, so files imported faster than the interval show up as a jump of the counter, never as missing output.
+     */
+    public TaskProgress follow(SessionStore.Session session, String taskId, Duration interval) throws Exception {
+        var progress = taskClient.get(session, taskId);
+        String printed = null;
+        while (true) {
+            var line = stepLine(progress);
+            if (!line.isBlank()
+                && !line.equals(printed)) {
+                out.println(line);
+                printed = line;
+            }
+            if (progress.isFinished()) {
+                return progress;
+            }
+            Thread.sleep(Math.max(50, interval.toMillis()));
+            progress = taskClient.get(session, taskId, true);
+        }
+    }
+
+    /**
+     * The line {@code follow} prints for a progress snapshot: the step counter when the task has steps, then the message; blank when the task has neither
+     */
+    public static String stepLine(TaskProgress progress) {
+        var counter = progress.totalSteps() > 0 ? "[" + progress.completedSteps() + "/" + progress.totalSteps() + "] " : "";
+        var message = progress.message()
+            .isBlank() ? "" : progress.message();
+        return (counter + message).trim();
+    }
+
     public void printFinal(TaskProgress progress) {
         out.printf("Task %s: %s (%d%%)%n", progress.taskId(), progress.status(), progress.percent());
         if (!progress.message()

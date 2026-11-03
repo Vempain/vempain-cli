@@ -64,7 +64,7 @@ class VempainFileCliApplicationUTC {
                 .complete(null, new CliIntegrationUTC.StubParsedLine(List.of("fi"), 0, "fi"), new ArrayList<Candidate>());
 
             assertTrue(errBytes.toString(StandardCharsets.UTF_8)
-                .contains("[completion-debug] suggestions for 'fi': [files-list, file-show]"), enabled + ": " + errBytes);
+                .contains("[completion-debug] suggestions for 'fi': [file]"), enabled + ": " + errBytes);
         }
         for (var disabled : new String[]{ null, "0", "no", "" }) {
             var errBytes = new ByteArrayOutputStream();

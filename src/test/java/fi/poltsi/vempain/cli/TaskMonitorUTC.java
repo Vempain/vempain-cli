@@ -123,6 +123,37 @@ class TaskMonitorUTC {
     }
 
     @Test
+    void follow_printsOneLinePerNewStepOrMessageAndPollsInTheBackground() throws Exception {
+        var scanning = "{\"task_id\":\"task-1\",\"status\":\"RUNNING\",\"total_steps\":3,\"completed_steps\":0,\"message\":\"Scanning music/2024\"}";
+        var first = "{\"task_id\":\"task-1\",\"status\":\"RUNNING\",\"total_steps\":3,\"completed_steps\":1,\"message\":\"Scanned music/2024/a.jpg\"}";
+        var done = "{\"task_id\":\"task-1\",\"status\":\"COMPLETED\",\"percent\":100,\"total_steps\":3,\"completed_steps\":3,"
+                + "\"message\":\"Scanned music/2024/c.jpg\"}";
+        // the same snapshot read twice prints once
+        server.registerJsonSequence("/api/tasks/task-1", scanning, first, first, done);
+
+        var progress = monitor().follow(session, "task-1", Duration.ofMillis(10));
+
+        assertEquals("COMPLETED", progress.status());
+        assertEquals(4, server.requests()
+            .size());
+        assertEquals(3, server.backgroundRequests()
+            .size(), "every poll after the first read is a background request");
+        var output = outBytes.toString(StandardCharsets.UTF_8)
+            .lines()
+            .toList();
+        assertEquals(List.of("[0/3] Scanning music/2024", "[1/3] Scanned music/2024/a.jpg", "[3/3] Scanned music/2024/c.jpg"), output);
+    }
+
+    @Test
+    void stepLine_omitsTheCounterWithoutStepsAndIsBlankWithoutStepsOrMessage() {
+        assertEquals("Working", TaskMonitor.stepLine(TaskProgress.fromJson(new JSONObject().put("message", "Working"))));
+        assertEquals("", TaskMonitor.stepLine(TaskProgress.fromJson(new JSONObject())));
+        assertEquals("[0/2]", TaskMonitor.stepLine(TaskProgress.fromJson(new JSONObject().put("total_steps", 2))));
+        assertEquals("[2/2]", TaskMonitor.stepLine(TaskProgress.fromJson(new JSONObject().put("total_steps", 2)
+            .put("completed_steps", 2))));
+    }
+
+    @Test
     void lines_showTheRemainingTimeEstimateWhileRunning() {
         var lines = TaskMonitor.lines(TaskProgress.fromJson(new JSONObject(RUNNING).put("estimated_remaining_seconds", 3900)));
 

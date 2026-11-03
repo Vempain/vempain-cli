@@ -1,6 +1,7 @@
 package fi.poltsi.vempain.cli.admin;
 
 import java.io.PrintStream;
+import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -36,6 +37,37 @@ public class AdminCommands {
         this.out = out;
         this.formatter = new OutputFormatter(out);
         this.taskMonitor = taskMonitor;
+    }
+
+    /**
+     * {@code admin list-tags}: {@code GET /content-management/tags?search=&limit=} of the admin backend, the tags of the published files and the pages that the
+     * page editor offers as suggestions.
+     */
+    public void listTags(AdminListTagsCommand command, SessionStore.Session session) throws Exception {
+        if (command.limit != null
+            && (command.limit < 1
+                || command.limit > 50)) {
+            throw new IllegalArgumentException("--limit must be between 1 and 50");
+        }
+        var query = new StringBuilder("/content-management/tags?limit=").append(command.limit == null ? 20 : command.limit);
+        if (command.search != null
+            && !command.search.isBlank()) {
+            query.append("&search=")
+                .append(URLEncoder.encode(command.search.trim(), StandardCharsets.UTF_8));
+        }
+        var response = transport.getJsonFlexible(session, query.toString());
+        var items = response.optJSONArray("items");
+        if (items == null
+            || items.isEmpty()) {
+            out.println("No tags found.");
+            return;
+        }
+        out.printf("%-8s %s%n", "id", "tag_name");
+        out.println("-".repeat(60));
+        for (int i = 0; i < items.length(); i++) {
+            var item = items.getJSONObject(i);
+            out.printf("%-8d %s%n", item.optLong("id", 0L), item.optString("tag_name", ""));
+        }
     }
 
     public void listGroups(AdminListGroupsCommand command, SessionStore.Session session) throws Exception {
@@ -175,6 +207,12 @@ public class AdminCommands {
         }
         var taskId = TaskClient.taskId(response);
         if (taskId == null) {
+            // A PublishResponse without a task is a publish the backend scheduled for later; there is nothing to follow
+            if (response.has("result")
+                && !response.has("task")) {
+                out.println("No background task to monitor: " + response.optString("message", "the publishing was scheduled"));
+                return;
+            }
             throw new IllegalStateException("The backend did not return a task_id; cannot monitor the request.");
         }
         taskMonitor.printFinal(taskMonitor.monitor(session, taskId, java.time.Duration.ofSeconds(1)));
@@ -199,6 +237,15 @@ public class AdminCommands {
                 List only the galleries modified after their last release to the website (both timestamps set, release older than the modification)
                 """)
         public boolean modifiedAfterPublish = false;
+    }
+
+    @Parameters(commandDescription = "List the tags the admin backend knows (published files and pages), optionally filtered by a search text")
+    public static class AdminListTagsCommand {
+
+        @Parameter(names = { "--search" }, description = "Text the tag name must contain (case-insensitive)")
+        public String search;
+        @Parameter(names = { "--limit" }, description = "Maximum number of tags (1..50, default 20)")
+        public Integer limit;
     }
 
     @Parameters(commandDescription = "Publish a single admin group (gallery)")

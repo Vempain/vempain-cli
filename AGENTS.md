@@ -11,6 +11,17 @@ and the main class is `VempainFileCliApplication`. Do not rename these without a
 `~/.config/vempain-cli/` (`core.CliHome`: `session.json` and `history`); the old locations `~/.config/vempain-file-cli/session.json` and
 `~/.vempain/history` are migrated from (moved) on first use and must not be written to again.
 
+## Command structure (2.0)
+
+- The command line is grouped by backend: `file <subcommand>` for the file backend (`list`, `show`, `scan`, `publish-files`,
+  `publish-status`, `publish-music`, `publish-gps`, `tag-rename`, `tag-replace`, `metadata-update`), `admin <subcommand>` for the admin
+  backend (`list-groups`, `list-tags`, `publish-group`, `publish-groups`, `publish-site-files`); `login`, `logout`, `session`, the task
+  commands and `shell` serve both. `CommandRouter.FILE_OPTIONS` / `ADMIN_OPTIONS` hold the subcommands and their options in completion order
+  (one place for the parser wiring and the completer), `LEGACY_COMMANDS` maps the 1.x top level names to the 2.0 form: typing an old name
+  prints the new one and runs nothing. A new file or admin subcommand is added to the `JCommander` group, the `file(...)`/`admin(...)`
+  dispatch, the options map and, when it names a local file, `LOCAL_PATH_OPTIONS`. `VERSION` is `2.0` because of this renaming; never
+  reintroduce the old top level names.
+
 ## Repository layout
 
 |                     Path                     |                                                                                Purpose                                                                                |
@@ -33,7 +44,7 @@ and the main class is `VempainFileCliApplication`. Do not rename these without a
 
 - `CommandRouter` registers commands, parses arguments with JCommander, drives the interactive shell and tab completion, and delegates to
   `FileCommands` / `AdminCommands`. Tab completion is one `CliCompleter` shared by the line shell and the TUI: command names and options,
-  file types, backend path completion for `scan` (`FileCommands.completeScanPath`, a `POST /path-completion`) and local filesystem completion
+  file types, backend path completion for `file scan` (`FileCommands.completeScanPath`, a `POST /path-completion`) and local filesystem completion
   for the options listed in `CommandRouter.LOCAL_PATH_OPTIONS` (`core.LocalPathCompleter`: keeps the typed directory part, `~` is the home
   directory, directories are open candidates ending in `/`). Add a new option that names a local file to that map. The TUI quotes a completed
   word containing whitespace because `splitArgs` only understands quotes, not backslash escapes.
@@ -46,13 +57,27 @@ and the main class is `VempainFileCliApplication`. Do not rename these without a
   through a second `CommandRouter` whose output, password prompt (masked dialog) and task monitor (`tui.TuiTaskMonitor`, which points at the
   tasks window instead of opening the full-screen `core.TaskMonitor`) are bound to the TUI. Lanterna owns the GUI thread; commands run on one
   command thread and the task poller on another, and they touch components only through `invokeLater`/`invokeAndWait`.
-- `file.FileCommands` also carries the file backend's rewrite-across-all-files commands: `tag-rename` (`POST /tags/all/rename`, after a
+- `file.FileCommands` also carries the file backend's rewrite-across-all-files commands: `file tag-rename` (`POST /tags/all/rename`, after a
   `POST /tags/paged` lookup so the current translations are resent, because the backend clears the ones a request omits), `tag-replace`
-  (`POST /tags/all/replace`) and `metadata-update` (`POST /metadata/value`, `--remove` sends an empty `new_value`); `publish-status`
+  (`POST /tags/all/replace`) and `file metadata-update` (`POST /metadata/value`, `--remove` sends an empty `new_value`); `file publish-status`
   (`GET /publish/file/{id}/status` or `GET /publish/file-group/{id}/status`, exactly one of `--file-id`/`--file-group-id`, `--raw` for the
   JSON) prints what an earlier publish created and the grantees it added, without starting anything. The three rewrites answer `202`
-  with a task; like `scan` and the publish commands they take `--monitor` and are followed in the TUI's running tasks window in shell mode.
+  with a task; like `file scan` and the publish commands they take `--monitor` and are followed in the TUI's running tasks window in shell mode.
+  `file scan --follow` (`--interval-ms`, 250 by default, never together with `--monitor`) instead stays on the command line and prints the
+  scan file by file through `TaskMonitor.follow`: one line `[completed/total] message` whenever a poll shows a new step count or message
+  (the file backend's scan task has one step per file and names it in the message), then the usual `printFinal` summary. The polls after
+  the first read are background requests. Tested in `TaskMonitorUTC` and `CliIntegrationUTC`.
   Argument validation happens before any request (`CliIntegrationUTC`).
+- `file publish-music` and `file publish-gps` (`POST /data-publish/music|gps-timeseries`) take `--publish-to-site`, which sends `publish_to_site: true` so
+  that the file backend also starts the admin backend's publishing of the created data set to the website (the "Create and publish" of the file
+  SPA); without the flag the body carries no such key and the data set is only created. Both take `--acl user:<id>:<privileges>` /
+  `--acl unit:<id>:<privileges>` (repeatable, privileges as letters out of `r`, `c`, `m`, `d`) or `--acl none`, turned by
+  `FileCommands.parseAclSpecs` into the `acls` list of the request (`user_id`/`unit_id` + the four `*_privilege` flags; `none` sends an empty
+  list, which removes every additional grantee of an existing data set); without `--acl` no list is sent and the grantees stay. An invalid
+  value is rejected with an `Invalid --acl value ...` message before any request (`CliIntegrationUTC`, `FileCommandsUTC`).
+- `admin.AdminCommands.listTags` (`admin list-tags`, `GET /content-management/tags?limit=&search=`, the tag suggestions of the admin SPA's page
+  editor) prints `id` and `tag_name` of the tags the admin backend knows (the tags of the published files and of the pages); `--limit` is
+  validated as 1..50 before the request and the search text is URL encoded.
 - `admin.AdminCommands.listGroups` (`admin list-groups`, `POST /content-management/galleries/paged-list`) prints `id`, `short_name`,
   `description` and `published`, the time the gallery was last released to the website (`FileGroupListResponse.published`, trimmed to
   the minute by `publishedColumn`; `never` when the backend sends `null`). Site files (`SiteFileResponse`) and data sets (`DataSummaryResponse`) carry the same
@@ -67,6 +92,11 @@ and the main class is `VempainFileCliApplication`. Do not rename these without a
   (`TaskClient.list/get(session, ..., true)`: the TUI `TaskBoard` and the polls of `TaskMonitor` after its first read); they carry
   `X-Vempain-Background: true` and the backend does not renew for them. `CliIntegrationUTC.MockApiServer.renewTokensWith` and
   `backgroundRequests()` cover both sides in tests.
+- The two backends acknowledge a started task differently, and `TaskClient.taskId` reads both: the file backend answers with a bare
+  `TaskAcceptedResponse` (`task_id` at the top level), the admin publish endpoints (`galleries/publish`, `galleries/publish-selected`,
+  `file/site-files/publish-selected`) with a `PublishResponse` whose accepted task is the `task` object, and which has no task at all when
+  the publish was scheduled for later (`AdminCommands.monitor` then says so instead of failing). Stub the admin endpoints in tests with
+  the real `PublishResponse` shape, never with a bare `task_id`.
 - `core.SessionStore` persists one session per backend (`file`, `admin`) and the active backend in `session.json` under `core.CliHome`; it still
   reads the legacy single-session file format. A `login` inside the shell or TUI (`CommandRouter.login` with `shellMode`) calls `keepSessionsInMemory()`:
   the file is deleted (stored sessions are invalidated) and every session is held in the store instance only, until `runShell`/`runTuiShell`
@@ -119,7 +149,9 @@ in `~/.gradle/gradle.properties` for GitHub Packages.
   typed `fi.poltsi.vempain:*-api` dependencies are enabled, add the `maven-github` registry block used by the backends and `registries: "*"`.
 - `.github/workflows/ci.yaml` runs tests and `fatJar` on pull requests and `main`.
 - `.github/workflows/rpm-cli.yaml` delegates to `Vempain/vempain-workflows/.github/workflows/rpm-cli-package.yaml`; keep `spec_file`, `jar_path`
-  and `wrapper_script_path` in sync with the paths above.
+  and `wrapper_script_path` in sync with the paths above. The workflow stamps the version, the JRE dependency and a dated `%changelog`
+  entry into the spec at build time (rpm clamps the packaged files' dates to the newest changelog entry); the entries checked in here are
+  history only.
 
 ## Tag ACL rule
 

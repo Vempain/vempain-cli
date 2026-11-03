@@ -57,8 +57,19 @@ public class TaskClient {
         transport.delete(session, "/tasks/" + taskId);
     }
 
+    /**
+     * The id of the task a backend accepted, from either response shape: the bare {@code TaskAcceptedResponse} the file backend answers with ({@code task_id}
+     * at the top level) or the admin backend's {@code PublishResponse}, which carries the accepted task in its {@code task} object. {@code null} when the
+     * response names no task (for example a publish that was scheduled for later).
+     */
     public static String taskId(JSONObject accepted) {
         var id = accepted.optString("task_id", accepted.optString("taskId", ""));
+        if (id.isBlank()) {
+            var task = accepted.optJSONObject("task");
+            if (task != null) {
+                id = task.optString("task_id", task.optString("taskId", ""));
+            }
+        }
         return id.isBlank() ? null : id;
     }
 }
