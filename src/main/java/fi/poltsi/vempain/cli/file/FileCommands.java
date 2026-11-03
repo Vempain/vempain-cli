@@ -355,6 +355,18 @@ public class FileCommands {
      */
     public void scan(ScanCommand command) throws Exception {
         var session = requireSession();
+        validateScanCommand(command);
+
+        var response = transport.postJson(session, "/scan-files", scanRequest(command));
+        if (command.follow) {
+            followScan(session, response, command.intervalMs);
+            return;
+        }
+        printScanResponse(response);
+        monitor(response, session, command.monitor);
+    }
+
+    private void validateScanCommand(ScanCommand command) {
         if ((command.originalDirectory == null
              || command.originalDirectory.isBlank())
             && (command.exportDirectory == null
@@ -368,7 +380,9 @@ public class FileCommands {
         if (command.intervalMs < 50) {
             throw new IllegalArgumentException("--interval-ms must be at least 50");
         }
+    }
 
+    private JSONObject scanRequest(ScanCommand command) {
         var request = new JSONObject();
         if (command.originalDirectory != null
             && !command.originalDirectory.isBlank()) {
@@ -378,24 +392,25 @@ public class FileCommands {
             && !command.exportDirectory.isBlank()) {
             request.put("export_directory", command.exportDirectory);
         }
+        return request;
+    }
 
-        var response = transport.postJson(session, "/scan-files", request);
-        if (command.follow) {
-            var taskId = TaskClient.taskId(response);
-            if (taskId == null) {
-                throw new IllegalStateException("The backend did not return a task_id; cannot follow the scan.");
-            }
-            out.println("Scan task " + taskId + " started");
-            taskMonitor.printFinal(taskMonitor.follow(session, taskId, java.time.Duration.ofMillis(command.intervalMs)));
-            return;
+    private void followScan(SessionStore.Session session, JSONObject response, long intervalMs) throws Exception {
+        var taskId = TaskClient.taskId(response);
+        if (taskId == null) {
+            throw new IllegalStateException("The backend did not return a task_id; cannot follow the scan.");
         }
+        out.println("Scan task " + taskId + " started");
+        taskMonitor.printFinal(taskMonitor.follow(session, taskId, java.time.Duration.ofMillis(intervalMs)));
+    }
+
+    private void printScanResponse(JSONObject response) {
         if (response.has("items")
             && response.get("items") instanceof JSONArray arr) {
             out.println(arr.toString(2));
         } else {
             out.println(response.toString(2));
         }
-        monitor(response, session, command.monitor);
     }
 
     /**
