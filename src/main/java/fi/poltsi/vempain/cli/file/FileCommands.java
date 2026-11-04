@@ -27,7 +27,7 @@ import fi.poltsi.vempain.cli.core.TaskMonitor;
 public class FileCommands {
 
     private static final Set<String> FILE_TYPES = Set.of("archive", "audio", "binary", "music", "data", "document", "executable", "font", "icon", "image",
-            "interactive", "thumb", "vector", "video");
+            "interactive", "vector", "video");
 
     private final SessionStore sessionStore;
     private final HttpTransport transport;
@@ -94,7 +94,7 @@ public class FileCommands {
         var metadata = transport.getJson(session, "/files/" + command.type + "/" + command.id);
         formatter.printFileMetadata(metadata, command.raw);
 
-        HttpResponse<byte[]> contentResponse = transport.getBytes(session, "/files/" + command.id + "/content");
+        HttpResponse<byte[]> contentResponse = transport.getBytes(session, "/files/" + command.id + (command.thumbnail ? "/thumbnail" : "/content"));
         var contentType = contentResponse.headers()
             .firstValue("content-type")
             .orElse("application/octet-stream");
@@ -750,6 +750,8 @@ public class FileCommands {
         public long id;
         @Parameter(names = { "--raw" }, description = "Show raw metadata JSON and do not truncate text content")
         public boolean raw;
+        @Parameter(names = { "--thumbnail" }, description = "Show the generated thumbnail instead of the original content")
+        public boolean thumbnail;
         @Parameter(names = { "--content-limit" }, description = "Maximum number of chars shown for textual content")
         public int contentLimit = 8_192;
     }
