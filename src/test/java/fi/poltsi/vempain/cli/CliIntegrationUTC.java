@@ -182,11 +182,11 @@ class CliIntegrationUTC {
             completer.complete(null, new StubParsedLine(List.of("file", "scan", "-o", "/m"), 3, "/m"), candidates);
 
             assertEquals(1, candidates.size());
-            assertEquals("/music/", candidates.get(0)
+            assertEquals("/music/", candidates.getFirst()
                 .value());
-            assertNull(candidates.get(0)
+            assertNull(candidates.getFirst()
                 .suffix());
-            assertFalse(candidates.get(0)
+            assertFalse(candidates.getFirst()
                 .complete());
         }
     }
@@ -241,7 +241,7 @@ class CliIntegrationUTC {
             var narrowedCandidates = new ArrayList<Candidate>();
             completer.complete(null, new StubParsedLine(List.of("file", "scan", "-o", "/m"), 3, "/m"), narrowedCandidates);
             assertEquals(1, narrowedCandidates.size());
-            assertEquals("/music/", narrowedCandidates.get(0)
+            assertEquals("/music/", narrowedCandidates.getFirst()
                 .value());
 
             var childCandidates = new ArrayList<Candidate>();
@@ -1137,11 +1137,11 @@ class CliIntegrationUTC {
             completer.complete(null, new StubParsedLine(List.of("file", "scan", "--original-directory", "/music/G"), 3, "/music/G"), candidates);
 
             assertEquals(1, candidates.size());
-            assertEquals("/music/Green_Day/", candidates.get(0)
+            assertEquals("/music/Green_Day/", candidates.getFirst()
                 .value());
-            assertFalse(candidates.get(0)
+            assertFalse(candidates.getFirst()
                 .complete());
-            assertNull(candidates.get(0)
+            assertNull(candidates.getFirst()
                 .suffix());
         }
     }
@@ -1161,9 +1161,9 @@ class CliIntegrationUTC {
             completer.complete(null, new StubParsedLine(List.of("file", "scan", "--original-directory", "/music/", "G"), 4, "G"), candidates);
 
             assertEquals(1, candidates.size());
-            assertEquals("Green_Day/", candidates.get(0)
+            assertEquals("Green_Day/", candidates.getFirst()
                 .value());
-            assertNull(candidates.get(0)
+            assertNull(candidates.getFirst()
                 .suffix());
         }
     }

@@ -174,7 +174,7 @@ public class FileCommands {
         }
         var acls = new JSONArray();
         if (aclSpecs.size() == 1
-            && "none".equalsIgnoreCase(aclSpecs.get(0)
+            && "none".equalsIgnoreCase(aclSpecs.getFirst()
                 .trim())) {
             return acls;
         }
