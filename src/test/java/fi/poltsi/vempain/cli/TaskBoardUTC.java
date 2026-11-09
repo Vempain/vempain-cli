@@ -89,7 +89,7 @@ class TaskBoardUTC {
 
         var lines = TaskBoard.lines(snapshot);
         assertEquals(3, lines.size());
-        assertEquals("[file] RUNNING     40%  Scanning originals (4/10)", lines.get(0));
+        assertEquals("[file] RUNNING     40%  Scanning originals (4/10)", lines.getFirst());
         assertEquals("[file] QUEUED       0%  PUBLISH_FILE", lines.get(1));
         assertEquals("[admin] tasks unavailable: session no longer valid, log in again (HTTP 401)", lines.get(2));
     }
